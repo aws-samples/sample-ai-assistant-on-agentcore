@@ -12,7 +12,7 @@ boto3>=1.42.62
 httpx==0.28.1
 
 # JWT token validation
-PyJWT==2.10.1
+PyJWT==2.12.0
 
 # MCP tool extraction (only dependency from langchain ecosystem)
 langchain-mcp-adapters==0.2.1
@@ -26,4 +26,4 @@ langchain-core>=0.3.0
 langgraph-checkpoint-aws>=1.0.6
 
 # Image processing for history_manager thumbnail generation
-Pillow>=11.0.0
+Pillow==12.1.1
