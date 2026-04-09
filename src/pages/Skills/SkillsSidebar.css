@@ -1,0 +1,391 @@
+/**
+ * SkillsSidebar Styles — Tree-style file explorer
+ */
+
+.skills-sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 280px;
+  min-width: 280px;
+  border-right: 1px solid var(--color-border);
+  background-color: var(--color-background);
+}
+
+.skills-sidebar-top {
+  padding: 1rem 0.5rem 0.5rem;
+}
+
+.skills-sidebar-add-btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.skills-sidebar-scroll {
+  flex: 1;
+  overflow: auto;
+}
+
+.skills-sidebar-section {
+  padding: 0.5rem 0.25rem;
+}
+
+.skills-sidebar-section-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--color-muted-foreground);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.375rem 0.75rem;
+  margin: 0;
+}
+
+/* Tree structure */
+.tree-root {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tree-item {
+  list-style: none;
+}
+
+.tree-children {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 1rem;
+  border-left: 1px solid var(--color-border);
+  margin-left: 0.875rem;
+  position: relative;
+}
+
+.tree-children > li {
+  position: relative;
+}
+
+.tree-children > li::before {
+  content: "";
+  position: absolute;
+  left: -1rem;
+  top: 0.75rem;
+  width: 0.75rem;
+  height: 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.tree-children > li:last-child::after {
+  content: "";
+  position: absolute;
+  left: -1rem;
+  top: 0.75rem;
+  bottom: 0;
+  width: 0;
+  background-color: var(--color-background);
+  border-left: 2px solid var(--color-background);
+  margin-left: -1px;
+}
+
+/* Skill row: button + badges side by side */
+.tree-skill-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 0;
+}
+
+.tree-skill-button {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0.375rem 0.5rem;
+  border: none;
+  background: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-foreground);
+  transition: background-color 0.12s ease;
+}
+
+.tree-skill-button:hover {
+  background-color: var(--color-accent);
+}
+
+.tree-skill-button:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: -2px;
+}
+
+.tree-skill-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.tree-skill-badges {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  flex-shrink: 0;
+  padding-right: 0.25rem;
+}
+
+.tree-system-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-primary);
+  opacity: 0.8;
+}
+
+.tree-info-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-muted-foreground);
+  border-radius: 3px;
+  cursor: pointer;
+  opacity: 0;
+  margin-left: auto;
+  flex-shrink: 0;
+  transition:
+    opacity 0.12s ease,
+    color 0.12s ease;
+}
+
+.tree-skill-button:hover .tree-info-button {
+  opacity: 1;
+}
+
+.tree-info-button:hover {
+  color: var(--color-foreground);
+}
+
+.tree-info-button:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--color-ring);
+  outline-offset: -2px;
+}
+
+.tree-hover-card {
+  max-width: 260px;
+  padding: 0.75rem;
+  text-align: left;
+}
+
+.tree-hover-card-text {
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--color-popover-foreground);
+  margin: 0;
+}
+
+/* Chevron */
+.tree-chevron {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
+  color: var(--color-muted-foreground);
+  transition: transform 0.12s ease;
+}
+
+.tree-chevron-open {
+  transform: rotate(90deg);
+}
+
+/* Folder row — contains folder button + add button */
+.tree-folder-row {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.tree-folder-row .tree-folder {
+  flex: 1;
+  min-width: 0;
+}
+
+.tree-add-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-muted-foreground);
+  border-radius: 3px;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.12s ease,
+    color 0.12s ease,
+    background-color 0.12s ease;
+  margin-right: 0.25rem;
+}
+
+.tree-folder-row:hover .tree-add-button {
+  opacity: 1;
+}
+
+.tree-add-button:hover {
+  color: var(--color-foreground);
+  background-color: var(--color-accent);
+}
+
+.tree-add-button:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--color-ring);
+  outline-offset: -2px;
+}
+
+/* Folder row */
+.tree-folder {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  width: 100%;
+  padding: 0.25rem 0.375rem;
+  border: none;
+  background: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-muted-foreground);
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.tree-folder:hover {
+  background-color: var(--color-accent);
+  color: var(--color-foreground);
+}
+
+.tree-folder:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: -2px;
+}
+
+.tree-folder-icon {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
+  color: var(--color-muted-foreground);
+}
+
+.tree-folder span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* File row */
+.tree-file {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  width: 100%;
+  padding: 0.25rem 0.375rem;
+  border: none;
+  background: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: var(--color-muted-foreground);
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.tree-file:hover {
+  background-color: var(--color-accent);
+  color: var(--color-foreground);
+}
+
+.tree-file:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: -2px;
+}
+
+.tree-file-active {
+  background-color: var(--color-accent);
+  color: var(--color-foreground);
+}
+
+.tree-file-icon {
+  width: 0.8125rem;
+  height: 0.8125rem;
+  flex-shrink: 0;
+}
+
+.tree-file span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Empty folder state */
+.tree-empty {
+  list-style: none;
+}
+
+.tree-empty-text {
+  display: block;
+  padding: 0.25rem 0.375rem;
+  font-size: 0.6875rem;
+  color: var(--color-muted-foreground);
+  opacity: 0.7;
+  font-style: italic;
+}
+
+/* Loading state */
+.skills-sidebar-loading {
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.skills-sidebar-skeleton {
+  height: 2rem;
+  border-radius: 4px;
+  background-color: var(--color-muted);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* Empty state */
+.skills-sidebar-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--color-muted-foreground);
+}
+
+.skills-sidebar-empty p {
+  font-size: 0.8125rem;
+  margin: 0;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .skills-sidebar {
+    width: 240px;
+    min-width: 240px;
+  }
+}

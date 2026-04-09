@@ -1,0 +1,102 @@
+.vnc-viewer-outer {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  isolation: isolate;
+}
+
+#dcv-display {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  isolation: isolate;
+}
+
+#dcv-display canvas {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* Hide canvas until first frame + resize settles */
+#dcv-display {
+  opacity: 0;
+  transition: opacity 300ms ease;
+}
+
+.vnc-viewer-outer--ready #dcv-display {
+  opacity: 1;
+}
+
+.vnc-debug {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 10;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  font:
+    12px/1.25 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    "Liberation Mono",
+    "Courier New",
+    monospace;
+  padding: 8px 10px;
+  border-radius: 8px;
+  pointer-events: none;
+}
+
+.vnc-viewer-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #999;
+  font-size: 13px;
+  z-index: 2;
+  pointer-events: none;
+  transition: opacity 300ms ease;
+}
+
+.vnc-viewer-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(255, 255, 255, 0.15);
+  border-top-color: rgba(255, 255, 255, 0.6);
+  border-radius: 50%;
+  animation: vnc-spin 0.7s linear infinite;
+}
+
+@keyframes vnc-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.vnc-viewer-loading--hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.vnc-viewer-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 13px;
+  z-index: 2;
+  pointer-events: none;
+}

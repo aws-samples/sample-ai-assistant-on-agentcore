@@ -1,0 +1,3 @@
+# KB Indexer Lambda dependencies
+
+boto3>=1.34.0

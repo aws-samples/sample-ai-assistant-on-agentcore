@@ -1,0 +1,126 @@
+/* CanvasToolIndicator.css — compact clickable indicator styled like ReasoningHeader */
+
+.canvas-tool-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  margin-top: -4px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 4px;
+  transition: opacity 0.15s ease;
+}
+
+.canvas-tool-indicator:hover {
+  opacity: 0.8;
+}
+
+.canvas-tool-indicator:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* Icon color */
+.canvas-tool-indicator.light .canvas-tool-indicator-icon {
+  color: #706d6c;
+}
+
+.canvas-tool-indicator.dark .canvas-tool-indicator-icon {
+  color: #8b8b8c;
+}
+
+/* Text styling — matches unified-header-text */
+.canvas-tool-indicator-text {
+  font-size: 1rem;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-weight: 500;
+}
+
+.canvas-tool-indicator.light .canvas-tool-indicator-text {
+  color: #4a4a4a;
+}
+
+.canvas-tool-indicator.dark .canvas-tool-indicator-text {
+  color: #8b8b8c;
+}
+
+/* Active state — highlight when this snapshot is being viewed */
+.canvas-tool-indicator.active .canvas-tool-indicator-text {
+  color: #2563eb;
+}
+
+.canvas-tool-indicator.active .canvas-tool-indicator-icon {
+  color: #2563eb;
+}
+
+.canvas-tool-indicator.dark.active .canvas-tool-indicator-text {
+  color: #60a5fa;
+}
+
+.canvas-tool-indicator.dark.active .canvas-tool-indicator-icon {
+  color: #60a5fa;
+}
+
+/* Error state — red text, not clickable */
+.canvas-tool-indicator.error {
+  cursor: default;
+}
+
+.canvas-tool-indicator.error .canvas-tool-indicator-text {
+  color: #dc2626;
+}
+
+.canvas-tool-indicator.error .canvas-tool-indicator-icon {
+  color: #dc2626;
+}
+
+.canvas-tool-indicator.dark.error .canvas-tool-indicator-text {
+  color: #f87171;
+}
+
+.canvas-tool-indicator.dark.error .canvas-tool-indicator-icon {
+  color: #f87171;
+}
+
+.canvas-tool-indicator.error:hover {
+  opacity: 1;
+}
+
+/* Shimmer animation for in-progress state — uses CSS custom properties for theme colors */
+.canvas-tool-indicator-text.shimmer-dark {
+  --shimmer-base: #8b8b8c;
+  --shimmer-highlight: #ffffff;
+}
+
+.canvas-tool-indicator-text.shimmer-light {
+  --shimmer-base: #9a9a9a;
+  --shimmer-highlight: #1a1a1a;
+}
+
+.canvas-tool-indicator-text.shimmer-dark,
+.canvas-tool-indicator-text.shimmer-light {
+  background: linear-gradient(
+    90deg,
+    var(--shimmer-base) 0%,
+    var(--shimmer-base) 25%,
+    var(--shimmer-highlight) 50%,
+    var(--shimmer-base) 75%,
+    var(--shimmer-base) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: canvasIndicatorShimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes canvasIndicatorShimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: -100% 50%;
+  }
+}

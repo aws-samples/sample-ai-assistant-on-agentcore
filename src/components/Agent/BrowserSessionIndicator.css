@@ -1,0 +1,424 @@
+.browser-live-container {
+  position: relative;
+  border-radius: 10px;
+  overflow: hidden;
+  margin: 8px 0;
+  background: #000;
+  height: 636px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Expanded: promote to fixed overlay, centered on screen */
+.browser-live-container--expanded {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  z-index: 10000;
+  max-width: 95vw;
+  max-height: 95vh;
+  border-radius: 10px;
+  /* width/height set dynamically via inline style from stream resolution */
+}
+
+/* LIVE badge */
+.browser-live-badge {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: rgba(40, 40, 40, 0.2);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border-top: 1px solid rgba(180, 180, 180, 0.4);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.browser-live-timeline {
+  width: 100%;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  position: relative;
+  overflow: hidden;
+}
+
+.browser-live-timeline-progress {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.browser-live-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.browser-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  animation: live-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.browser-expand-btn {
+  margin-left: auto;
+  padding: 4px;
+  border: none;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Overlay backdrop — sits behind the expanded container */
+.browser-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.browser-modal-bar {
+  flex: 0 0 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(40, 40, 40, 0.2);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border-top: 1px solid rgba(180, 180, 180, 0.4);
+  z-index: 2;
+  position: relative;
+}
+
+/* Transition mask — covers VNC during expand/collapse while server resizes */
+.browser-transition-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  background: #0a0a0a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: mask-fade-out 1800ms ease forwards;
+  pointer-events: none;
+}
+
+.browser-transition-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(255, 255, 255, 0.15);
+  border-top-color: rgba(255, 255, 255, 0.6);
+  border-radius: 50%;
+  animation: spinner-rotate 0.7s linear infinite;
+}
+
+@keyframes spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes mask-fade-out {
+  0% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Session ended notification */
+.browser-session-notification {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: hsl(0 0% 95%);
+  border: 1px solid hsl(0 0% 85%);
+  color: rgba(0, 0, 0, 0.5);
+  font-size: 12px;
+  margin: 6px 0;
+}
+
+.browser-session-notification-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.25);
+  flex-shrink: 0;
+}
+
+html.dark .browser-session-notification {
+  background: hsl(0 0% 15%);
+  border: 1px solid hsl(0 0% 22%);
+  color: rgba(255, 255, 255, 0.6);
+}
+
+html.dark .browser-session-notification-dot {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Input toggle button */
+.browser-input-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  padding: 6px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  transition: all 150ms ease;
+}
+
+.browser-input-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.browser-input-btn--active {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.4);
+  color: rgba(96, 165, 250, 0.9);
+}
+
+.browser-input-btn--active:hover {
+  background: rgba(59, 130, 246, 0.3);
+}
+
+/* Transparent overlay that blocks pointer events to the DCV canvas */
+.browser-input-blocker {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  cursor: default;
+}
+
+/* Refresh warning banner */
+.browser-refresh-warning {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  padding: 6px 14px;
+  border-radius: 6px;
+  background: rgba(234, 179, 8, 0.9);
+  color: #000;
+  font-size: 12px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+/* Agent paused banner — shown when the agent is waiting for user to release control */
+.browser-paused-banner {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  background: rgba(59, 130, 246, 0.85);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  pointer-events: none;
+  animation: paused-fade-in 300ms ease;
+}
+
+.browser-paused-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #fff;
+  animation: paused-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes paused-fade-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+@keyframes paused-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* Release control button variant in modal bar */
+.browser-input-btn--release {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: rgba(252, 165, 165, 0.9);
+}
+
+.browser-input-btn--release:hover {
+  background: rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+}
+
+/* Loading spinner for take/release control button */
+.browser-control-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: rgba(255, 255, 255, 0.6);
+  border-radius: 50%;
+  animation: spinner-rotate 0.7s linear infinite;
+}
+
+.browser-input-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Toast release button — solid style */
+.browser-toast-release-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  border-radius: 5px;
+  background: hsl(0 0% 12%);
+  color: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+  min-width: 60px;
+  min-height: 28px;
+  transition: background 150ms ease;
+}
+
+.browser-toast-release-btn:hover {
+  background: hsl(0 0% 20%);
+}
+
+.browser-toast-release-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+html.dark .browser-toast-release-btn {
+  background: hsl(0 0% 90%);
+  color: #000;
+}
+
+html.dark .browser-toast-release-btn:hover {
+  background: hsl(0 0% 80%);
+}
+
+/* Spinner inside toast button needs inverted colors in dark mode */
+html.dark .browser-toast-release-btn .browser-control-spinner {
+  border-color: rgba(0, 0, 0, 0.15);
+  border-top-color: rgba(0, 0, 0, 0.5);
+}
+
+/* Inline release session button (collapsed view) */
+.browser-release-session-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin: 6px 0;
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid hsl(0 0% 85%);
+  border-radius: 8px;
+  background: hsl(0 0% 95%);
+  color: rgba(0, 0, 0, 0.7);
+  cursor: pointer;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease;
+  min-height: 36px;
+}
+
+.browser-release-session-btn:hover {
+  background: hsl(0 0% 90%);
+  border-color: hsl(0 0% 75%);
+}
+
+.browser-release-session-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+html.dark .browser-release-session-btn {
+  background: hsl(0 0% 15%);
+  border-color: hsl(0 0% 22%);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+html.dark .browser-release-session-btn:hover {
+  background: hsl(0 0% 20%);
+  border-color: hsl(0 0% 30%);
+}
+
+/* Dark variant of control spinner for inline button */
+.browser-control-spinner--dark {
+  border-color: rgba(0, 0, 0, 0.15);
+  border-top-color: rgba(0, 0, 0, 0.5);
+}
+
+html.dark .browser-control-spinner--dark {
+  border-color: rgba(255, 255, 255, 0.15);
+  border-top-color: rgba(255, 255, 255, 0.6);
+}

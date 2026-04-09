@@ -1,0 +1,94 @@
+/**
+ * TemplateManager Styles
+ *
+ */
+
+.template-manager {
+  border-top: 1px solid var(--color-border);
+  padding-top: 1rem;
+  margin-top: 1rem;
+}
+
+.template-manager-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.template-manager-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  margin: 0;
+  flex: 1;
+}
+
+.template-manager-file-input {
+  display: none;
+}
+
+.template-manager-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.template-manager-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0.375rem;
+  font-size: 0.8125rem;
+}
+
+.template-manager-item:hover {
+  background-color: var(--color-muted);
+}
+
+.template-manager-item-icon {
+  color: var(--color-muted-foreground);
+  flex-shrink: 0;
+}
+
+.template-manager-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.template-manager-delete-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem;
+  border: none;
+  background: none;
+  color: var(--color-muted-foreground);
+  border-radius: 0.25rem;
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.15s,
+    color 0.15s;
+}
+
+.template-manager-item:hover .template-manager-delete-btn {
+  opacity: 1;
+}
+
+.template-manager-delete-btn:hover {
+  color: var(--color-destructive, #ef4444);
+}
+
+.template-manager-empty {
+  color: var(--color-muted-foreground);
+  font-size: 0.8125rem;
+  font-style: italic;
+  margin: 0;
+}

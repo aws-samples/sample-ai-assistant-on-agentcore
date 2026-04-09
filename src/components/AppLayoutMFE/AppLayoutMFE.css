@@ -1,0 +1,25 @@
+/* App layout container - ensure content fills remaining width */
+.app-layout-container {
+  width: 100%;
+  height: 100vh;
+  overflow: auto;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header with model selector */
+.app-header {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  z-index: 10;
+}
+
+/* Clickable overlay to close sidebar in overlay mode */
+.sidebar-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  cursor: default;
+}

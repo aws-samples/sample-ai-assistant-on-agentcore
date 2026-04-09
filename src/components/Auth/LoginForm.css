@@ -1,0 +1,51 @@
+.login-container {
+  width: 500px;
+  height: 100%;
+  font-size: 14px;
+}
+
+.form-container {
+  text-align: center;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.error-message {
+  color: hsl(var(--destructive));
+  text-align: center;
+  font-size: 13px;
+  margin: -18px 0 18px 0;
+}
+
+/* Dark mode input styling */
+.login-container.dark input {
+  background-color: #212121 !important;
+  color: #e5e5e5;
+  border: 1px solid #3f3f46 !important;
+}
+
+.login-container.dark input:focus {
+  border-color: #a1a1aa !important;
+  outline: none;
+}
+
+.login-container.dark input::placeholder {
+  color: #6b7280;
+}
+
+/* Mobile specific */
+@media (max-width: 768px) {
+  .login-container {
+    width: 90vw;
+    max-width: 350px;
+  }
+
+  .form-container {
+    padding: 4vw;
+  }
+}

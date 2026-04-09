@@ -1,0 +1,32 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="96"
+  height="96"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="none"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <defs>
+    <radialGradient
+      id="sparkleGradient"
+      cx="30%"
+      cy="30%"
+      r="70%"
+      gradientUnits="objectBoundingBox"
+    >
+      <stop offset="0" stop-color="#B8E7FF" stop-opacity="1" />
+      <stop offset="0.15" stop-color="#0099FF" stop-opacity="1" />
+      <stop offset="0.3" stop-color="#5C7FFF" stop-opacity="1" />
+      <stop offset="0.45" stop-color="#8575FF" stop-opacity="1" />
+      <stop offset="0.6" stop-color="#962EFF" stop-opacity="1" />
+      <stop offset="1" stop-color="#962EFF" stop-opacity="1" />
+    </radialGradient>
+  </defs>
+  <path
+    d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.582a.5.5 0 0 1 0 .963L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"
+    fill="url(#sparkleGradient)"
+  />
+</svg>

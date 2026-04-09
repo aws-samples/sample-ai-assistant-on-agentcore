@@ -1,0 +1,29 @@
+# Core-Services Dependencies
+# Lightweight synchronous API service - no LangChain/LangGraph needed
+
+# Web framework
+uvicorn[standard]==0.41.0
+fastapi==0.135.1
+
+# AWS SDK
+boto3>=1.42.62
+
+# HTTP client for MCP tool extraction
+httpx==0.28.1
+
+# JWT token validation
+PyJWT==2.10.1
+
+# MCP tool extraction (only dependency from langchain ecosystem)
+langchain-mcp-adapters==0.2.1
+
+# Package installer (used by MCP server management)
+uv==0.10.8
+
+# LangGraph/LangChain — required for reusing Sparky's history retrieval methodology
+langgraph>=1.0.10
+langchain-core>=0.3.0
+langgraph-checkpoint-aws>=1.0.6
+
+# Image processing for history_manager thumbnail generation
+Pillow>=11.0.0

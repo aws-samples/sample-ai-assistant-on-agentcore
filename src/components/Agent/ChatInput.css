@@ -1,0 +1,672 @@
+.chat-input-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.dropdown-content-container {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 8px;
+  z-index: 1000;
+  animation: slideUp 0.3s ease-out;
+  pointer-events: auto;
+  width: fit-content;
+}
+
+.dropdown-content-container.closing {
+  animation: slideDown 0.2s ease-in forwards;
+  pointer-events: none;
+}
+
+.dropdown-content {
+  background: var(--color-popover);
+  color: var(--color-popover-foreground);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.04);
+  overflow-y: auto;
+  overflow-x: hidden;
+  max-height: 350px;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  width: fit-content;
+  min-width: 180px;
+}
+
+html.dark .dropdown-content {
+  background: hsl(0 0% 14.9%);
+  border-color: #262626;
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.3),
+    0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.dropdown-content::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.dropdown-content > * {
+  overflow: visible !important;
+  max-height: none !important;
+}
+
+@keyframes slideUp {
+  0% {
+    opacity: 0;
+    margin-bottom: -2px;
+  }
+  100% {
+    opacity: 1;
+    margin-bottom: 8px;
+  }
+}
+
+@keyframes slideDown {
+  0% {
+    opacity: 1;
+    margin-bottom: 8px;
+  }
+  100% {
+    opacity: 0;
+    margin-bottom: -2px;
+  }
+}
+
+.chat-input-container {
+  width: 100%;
+  border-radius: 24px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0 auto;
+  transition: all 0.2s ease;
+  background: hsl(0 0% 98%);
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.1),
+    0 2px 8px rgba(0, 0, 0, 0.05);
+  border: 1px solid var(--color-border);
+}
+
+/* Remove border in dark mode */
+html.dark .chat-input-container {
+  border: none;
+  background: hsl(0 0% 14.9%);
+}
+
+.chat-textarea {
+  width: 100%;
+  background: transparent;
+  font-size: 16px;
+  line-height: 1.5;
+  padding: 8px 0;
+  resize: none;
+  outline: none;
+  min-height: 24px;
+  max-height: 200px;
+  overflow-y: auto;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  transition: all 0.2s ease;
+  border: none;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  color: var(--color-foreground);
+}
+
+.chat-textarea::placeholder {
+  color: var(--color-muted-foreground);
+  font-size: 14px;
+}
+
+.chat-textarea::-webkit-scrollbar {
+  display: none;
+}
+
+.chat-textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.button-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.optional-buttons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.action-button {
+  background: transparent;
+  padding: 8px;
+  border-radius: 10px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+  font-weight: 500;
+  min-height: 36px;
+  border: none;
+  color: var(--color-muted-foreground);
+}
+
+.action-button:hover:not(:disabled) {
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
+}
+
+.action-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.action-button.dropdown-open {
+  background-color: var(--color-accent);
+}
+
+/* Toggle button specific styles */
+.action-button.toggle-button {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: stretch;
+  flex-direction: row;
+  border-radius: 10px;
+  padding: 6px 8px 6px 8px;
+}
+
+.action-button.toggle-button .button-main-content {
+  display: flex;
+  align-items: center;
+  gap: 0px;
+  transition: all 0.2s ease;
+  flex: 1;
+  border-radius: 10px 0 0 10px;
+  background: transparent;
+}
+
+.action-button.toggle-button:hover:not(:disabled) {
+  background: var(--color-accent);
+}
+
+.action-button.toggle-button.toggled {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+  padding: 0px 8px 0px 8px;
+  gap: 6px;
+}
+
+.action-button.toggle-button.toggled .button-main-content {
+  color: #3b82f6;
+}
+
+.action-button.toggle-button.toggled:hover {
+  background: rgba(59, 130, 246, 0.2);
+}
+
+/* Dark mode - blue theme for toggled buttons */
+html.dark .action-button.toggle-button.toggled {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+html.dark .action-button.toggle-button.toggled .button-main-content {
+  color: #60a5fa;
+}
+
+html.dark .action-button.toggle-button.toggled:hover {
+  background: rgba(59, 130, 246, 0.25);
+}
+
+/* Separator line */
+.button-separator {
+  display: inline-block;
+  width: 1px;
+  padding: 0;
+  height: 24px;
+  background-color: var(--color-border);
+  margin: 0;
+  align-self: center;
+  transition: all 0.4s ease;
+}
+
+.action-button.toggle-button.toggled .button-separator {
+  background-color: rgba(59, 130, 246, 0.3);
+  padding: 0;
+}
+
+html.dark .action-button.toggle-button.toggled .button-separator {
+  background-color: rgba(96, 165, 250, 0.4);
+}
+
+/* Dropdown arrow */
+.dropdown-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 0 8px 0;
+  cursor: pointer;
+  border-radius: 0 10px 10px 0;
+  color: inherit;
+}
+
+.dropdown-arrow:hover {
+  background: var(--color-accent);
+}
+
+/* When toggled, dropdown arrow inherits parent background - no separate background */
+.action-button.toggle-button.toggled .dropdown-arrow {
+  color: #3b82f6;
+}
+
+.action-button.toggle-button.toggled .dropdown-arrow:hover {
+  background: transparent;
+}
+
+html.dark .action-button.toggle-button.toggled .dropdown-arrow {
+  color: #60a5fa;
+}
+
+html.dark .action-button.toggle-button.toggled .dropdown-arrow:hover {
+  background: transparent;
+}
+
+.action-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+}
+
+.action-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.button-label {
+  font-weight: 500;
+  margin-left: 4px;
+  font-size: 14px;
+}
+
+.action-button:not(.toggle-button) .button-main-content {
+  display: flex;
+  align-items: center;
+  gap: 0px;
+}
+
+.send-button {
+  border: none;
+  border-radius: 10px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  /* Light mode - black background, white arrow */
+  background: #1a1a1a;
+}
+
+.send-button:hover:not(:disabled) {
+  background: #333333;
+}
+
+.send-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.send-button:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.send-button svg {
+  width: 20px;
+  height: 20px;
+  /* Light mode - white arrow */
+  color: #ffffff;
+}
+
+/* Dark mode - white background, black arrow */
+html.dark .send-button {
+  background: #ffffff;
+}
+
+html.dark .send-button:hover:not(:disabled) {
+  background: #e5e5e5;
+}
+
+html.dark .send-button svg {
+  color: #1a1a1a;
+}
+
+.stop-button {
+  border: none;
+  border-radius: 10px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  /* Light mode - black background */
+  background: #1a1a1a;
+}
+
+.stop-button:hover:not(:disabled) {
+  background: #333333;
+}
+
+.stop-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.stop-button:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.stop-button svg {
+  width: 20px;
+  height: 20px;
+  /* Light mode - white icon */
+  color: #ffffff;
+}
+
+/* Dark mode - white background, black icon */
+html.dark .stop-button {
+  background: #ffffff;
+}
+
+html.dark .stop-button:hover:not(:disabled) {
+  background: #e5e5e5;
+}
+
+html.dark .stop-button svg {
+  color: #1a1a1a;
+}
+
+/* Optional: Custom scrollbar styling when visible */
+@media (min-width: 768px) {
+  .chat-textarea {
+    scrollbar-width: thin;
+  }
+
+  .chat-textarea::-webkit-scrollbar {
+    display: block;
+    width: 6px;
+  }
+
+  .chat-textarea::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .chat-textarea::-webkit-scrollbar-thumb {
+    background: var(--color-muted-foreground);
+    border-radius: 3px;
+    opacity: 0.5;
+  }
+
+  .chat-textarea::-webkit-scrollbar-thumb:hover {
+    opacity: 0.7;
+  }
+}
+
+/* File Upload Styles */
+.chat-input-container.dragging {
+  border: 2px dashed #3b82f6;
+  background: rgba(59, 130, 246, 0.05);
+}
+
+html.dark .chat-input-container.dragging {
+  border-color: #60a5fa;
+  background: rgba(96, 165, 250, 0.1);
+}
+
+.drag-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(59, 130, 246, 0.1);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  pointer-events: none;
+}
+
+html.dark .drag-overlay {
+  background: rgba(96, 165, 250, 0.15);
+}
+
+.drag-overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: #3b82f6;
+  font-weight: 500;
+}
+
+html.dark .drag-overlay-content {
+  color: #60a5fa;
+}
+
+.attached-files-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: 4px;
+}
+
+.attached-file-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--color-accent);
+  border-radius: 8px;
+  max-width: 200px;
+}
+
+.file-thumbnail {
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.file-icon {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-muted);
+  border-radius: 4px;
+  color: var(--color-muted-foreground);
+}
+
+.file-name {
+  font-size: 12px;
+  color: var(--color-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100px;
+}
+
+.remove-file-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: var(--color-muted-foreground);
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 0;
+  transition: all 0.15s ease;
+}
+
+.remove-file-btn:hover {
+  background: var(--color-destructive);
+  color: white;
+}
+
+.upload-button {
+  padding: 8px !important;
+}
+
+.upload-button .action-icon {
+  color: var(--color-muted-foreground);
+}
+
+.upload-button:hover:not(:disabled) .action-icon {
+  color: var(--color-accent-foreground);
+}
+
+.attached-file-preview.encoding {
+  opacity: 0.7;
+}
+
+.attached-file-preview.error {
+  border: 1px solid rgba(239, 68, 68, 0.5);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+html.dark .attached-file-preview.error {
+  border-color: rgba(239, 68, 68, 0.6);
+  background: rgba(239, 68, 68, 0.15);
+}
+
+.file-status {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.file-status.encoding {
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+}
+
+html.dark .file-status.encoding {
+  color: #60a5fa;
+  background: rgba(96, 165, 250, 0.15);
+}
+
+.file-error-indicator {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: #dc2626;
+  border-radius: 50%;
+  z-index: 1;
+}
+
+html.dark .file-error-indicator {
+  background: #ef4444;
+}
+
+.file-error-indicator .error-icon {
+  color: white;
+  width: 12px;
+  height: 12px;
+}
+
+.attached-file-preview {
+  position: relative;
+}
+
+.file-status.error-status {
+  color: #dc2626;
+  background: rgba(239, 68, 68, 0.1);
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+html.dark .file-status.error-status {
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.15);
+}
+
+/* .research-button uses same base styles as toggle-button via class inheritance */
+
+.research-button.toggled {
+  background: rgba(234, 179, 8, 0.15);
+  color: #ca8a04;
+}
+
+.research-button.toggled .button-main-content {
+  color: #ca8a04;
+}
+
+.research-button.toggled:hover {
+  background: rgba(234, 179, 8, 0.2);
+}
+
+/* Dark mode - amber/yellow theme for Research */
+html.dark .research-button.toggled {
+  background: rgba(250, 204, 21, 0.2);
+  color: #facc15;
+}
+
+html.dark .research-button.toggled .button-main-content {
+  color: #facc15;
+}
+
+html.dark .research-button.toggled:hover {
+  background: rgba(250, 204, 21, 0.25);
+}
+
+/* Dismiss button styling for Research - less spacing, no red hover */
+.research-button .dismiss-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 8px 8px 4px;
+  margin-left: 2px;
+  cursor: pointer;
+  border-radius: 0 10px 10px 0;
+  color: inherit;
+  transition: all 0.15s ease;
+}
+
+.research-button .dismiss-button:hover {
+  opacity: 0.7;
+}
+
+html.dark .research-button .dismiss-button:hover {
+  opacity: 0.7;
+}
