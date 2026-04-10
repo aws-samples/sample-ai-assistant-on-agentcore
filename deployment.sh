@@ -9,6 +9,32 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# Check Node.js version meets minimum requirement from package.json
+check_node_version() {
+    # Load mise if available (not loaded in non-interactive bash shells)
+    if [ -f "$HOME/.local/bin/mise" ]; then
+        eval "$("$HOME/.local/bin/mise" activate bash)" 2>/dev/null || true
+    fi
+
+    # Load nvm if available (not loaded in non-interactive bash shells)
+    export NVM_DIR="$HOME/.nvm"
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    [ -f ".nvmrc" ] && nvm use --silent 2>/dev/null || true
+
+    REQUIRED_NODE_MAJOR=$(node -e "const e=require('./package.json').engines?.node||'';const m=e.match(/(\d+)/);process.stdout.write(m?m[1]:'')" 2>/dev/null)
+    CURRENT_NODE_MAJOR=$(node --version 2>/dev/null | sed 's/v//' | cut -d. -f1)
+
+    if [ -z "$CURRENT_NODE_MAJOR" ]; then
+        echo -e "${RED}Error: Node.js is not installed or not in PATH.${NC}"
+        exit 1
+    fi
+    if [ -n "$REQUIRED_NODE_MAJOR" ] && [ "$CURRENT_NODE_MAJOR" -lt "$REQUIRED_NODE_MAJOR" ]; then
+        echo -e "${RED}Error: Node.js v${REQUIRED_NODE_MAJOR}+ is required (from package.json), but you are running $(node --version).${NC}"
+        echo -e "${BLUE}Run 'nvm use ${REQUIRED_NODE_MAJOR}' in this terminal, or run 'nvm alias default ${REQUIRED_NODE_MAJOR}' and restart your terminal.${NC}"
+        exit 1
+    fi
+}
+
 # Function to check if .deployment.config exists and load variables
 check_existing_config() {
     if [ -f ".deployment.config" ]; then
@@ -289,7 +315,9 @@ EOF
 deploy_frontend() {
     echo -e "\n${GREEN}Deploying frontend...${NC}"
 
-        # Check for deployment config file
+    check_node_version
+
+    # Check for deployment config file
     if [ ! -f ".deployment.config" ]; then
         echo -e "${RED}Error: .deployment.config file not found. Please deploy backend first.${NC}"
         echo -e "${BLUE}The .deployment.config file is required for frontend deployment as it contains the Amplify app ID.${NC}"
@@ -300,12 +328,6 @@ deploy_frontend() {
     # Load deployment config
     source .deployment.config
 
-    # Use nvm if available
-    if command -v nvm &> /dev/null && [ -f ".nvmrc" ]; then
-        nvm use
-    fi
-
-    
     if [ -z "$APP_ID" ]; then
         echo -e "${RED}Error: APP_ID not found in .deployment.config${NC}"
         exit 1
@@ -409,3 +431,4 @@ esac
 
 echo -e "\n${GREEN}Deployment completed successfully!${NC}"
 echo -e "\n${GREEN}Application Login page: ${BLUE}$VITE_REDIRECT_SIGN_IN${NC}"
+echo -e "\n${GREEN}You should have received an email from no-reply@verificationemail.com with your temporary password!${NC}"
