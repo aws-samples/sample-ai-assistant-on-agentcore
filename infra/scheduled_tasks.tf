@@ -509,3 +509,24 @@ resource "aws_iam_role_policy" "core_services_task_dynamodb_policy" {
     ]
   })
 }
+
+
+# Allow Sparky runtime to write scheduled task execution results
+resource "aws_iam_role_policy" "sparky_task_results_policy" {
+  name = "${local.prefix}-sparky-task-results-policy"
+  role = aws_iam_role.sparky_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "TaskExecutionsWrite"
+        Effect = "Allow"
+        Action = [
+          "dynamodb:UpdateItem"
+        ]
+        Resource = aws_dynamodb_table.scheduled_task_executions.arn
+      }
+    ]
+  })
+}

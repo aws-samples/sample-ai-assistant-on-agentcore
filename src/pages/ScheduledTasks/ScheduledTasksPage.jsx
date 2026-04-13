@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import {
   Clock,
   Plus,
@@ -76,6 +77,14 @@ function TaskDetail({ jobId, onBack }) {
   const [loading, setLoading] = useState(true);
   const [viewExec, setViewExec] = useState(null);
   const [triggering, setTriggering] = useState(false);
+  const [editing, setEditing] = useState(false);
+
+  const loadExecutions = useCallback(async () => {
+    try {
+      const data = await listTaskExecutions(jobId);
+      setExecutions(data.executions || []);
+    } catch { /* ignore */ }
+  }, [jobId]);
 
   useEffect(() => {
     Promise.all([getScheduledTask(jobId), listTaskExecutions(jobId)])
@@ -87,13 +96,24 @@ function TaskDetail({ jobId, onBack }) {
       .finally(() => setLoading(false));
   }, [jobId]);
 
+  // Auto-poll while any execution is running
+  useEffect(() => {
+    const hasRunning = executions.some((e) => e.status === "running");
+    if (!hasRunning) return;
+    const interval = setInterval(loadExecutions, 5000);
+    return () => clearInterval(interval);
+  }, [executions, loadExecutions]);
+
   const handleTrigger = async () => {
     setTriggering(true);
     try {
       await triggerScheduledTask(jobId);
-      toast.success("Job triggered — execution will appear shortly");
+      toast.success("Task triggered — execution will appear shortly");
+      // Poll for the new execution to appear
+      setTimeout(loadExecutions, 1500);
+      setTimeout(loadExecutions, 4000);
     } catch {
-      toast.error("Failed to trigger job");
+      toast.error("Failed to trigger task");
     } finally {
       setTriggering(false);
     }
@@ -124,6 +144,9 @@ function TaskDetail({ jobId, onBack }) {
         <div className="st-content">
           <div className="st-detail-title-row">
             <h1>{job.name}</h1>
+            <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+              <Pencil size={14} className="mr-1" /> Edit
+            </Button>
             <Button size="sm" variant="outline" onClick={handleTrigger} disabled={triggering}>
               {triggering ? <Loader2 className="animate-spin mr-1" size={14} /> : <Play size={14} className="mr-1" />}
               Run Now
@@ -167,17 +190,25 @@ function TaskDetail({ jobId, onBack }) {
                   .map((exec) => {
                     const started = exec.started_at ? new Date(exec.started_at) : null;
                     const finished = exec.finished_at ? new Date(exec.finished_at) : null;
+                    const isRunning = exec.status === "running";
                     const duration =
-                      started && finished ? `${Math.round((finished - started) / 1000)}s` : "—";
+                      started && finished
+                        ? `${Math.round((finished - started) / 1000)}s`
+                        : isRunning && started
+                          ? `${Math.round((Date.now() - started) / 1000)}s…`
+                          : "—";
                     return (
                       <tr key={exec.execution_id}>
                         <td>{started ? started.toLocaleString() : "—"}</td>
                         <td>
-                          <span className={`exec-status ${exec.status}`}>{exec.status}</span>
+                          <span className={`exec-status ${exec.status}`}>
+                            {isRunning && <Loader2 className="animate-spin inline mr-1" size={12} />}
+                            {exec.status}
+                          </span>
                         </td>
                         <td>{duration}</td>
                         <td>
-                          {exec.status !== "running" && (
+                          {!isRunning && (
                             <Button variant="ghost" size="sm" onClick={() => setViewExec(exec)}>
                               <Eye size={14} />
                             </Button>
@@ -193,6 +224,16 @@ function TaskDetail({ jobId, onBack }) {
           {viewExec && <ExecutionOutput execution={viewExec} onClose={() => setViewExec(null)} />}
         </div>
       </div>
+
+      <TaskForm
+        open={editing}
+        onClose={() => setEditing(false)}
+        onSave={async () => {
+          const data = await getScheduledTask(jobId);
+          setJob(data.job);
+        }}
+        editJob={job}
+      />
     </div>
   );
 }
@@ -300,11 +341,12 @@ function TaskForm({ open, onClose, onSave, editJob }) {
 }
 
 export default function ScheduledTasksPage() {
+  const { taskId } = useParams();
+  const navigate = useNavigate();
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editJob, setEditJob] = useState(null);
-  const [detailJobId, setDetailJobId] = useState(null);
 
   const loadJobs = useCallback(async () => {
     try {
@@ -341,8 +383,8 @@ export default function ScheduledTasksPage() {
     }
   };
 
-  if (detailJobId) {
-    return <TaskDetail jobId={detailJobId} onBack={() => setDetailJobId(null)} />;
+  if (taskId) {
+    return <TaskDetail jobId={taskId} onBack={() => navigate("/scheduled-tasks")} />;
   }
 
   return (
@@ -391,7 +433,7 @@ export default function ScheduledTasksPage() {
                   .filter((j) => j.status !== "deleted")
                   .map((job) => (
                     <tr key={job.job_id}>
-                      <td className="st-name" onClick={() => setDetailJobId(job.job_id)}>
+                      <td className="st-name" onClick={() => navigate(`/scheduled-tasks/${job.job_id}`)}>
                         {job.name}
                       </td>
                       <td style={{ fontSize: "0.8125rem", color: "var(--color-muted-foreground)" }}>

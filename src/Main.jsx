@@ -27,6 +27,7 @@ function Main({ user }) {
       <Route path="/projects" element={<ProjectsPage />} />
       {/* Scheduled Tasks route */}
       <Route path="/scheduled-tasks" element={<ScheduledTasksPage />} />
+      <Route path="/scheduled-tasks/:taskId" element={<ScheduledTasksPage />} />
       {/* Session route - Agent with session ID for chat persistence */}
       <Route path="/chat/:sessionId" element={<AgentWrapper user={user} />} />
     </Routes>

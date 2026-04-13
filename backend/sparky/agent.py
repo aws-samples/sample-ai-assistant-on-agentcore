@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import os
 from functools import lru_cache
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -146,7 +147,7 @@ async def invoke(request: InvocationRequest, http_request: Request):
     request_type = request.input.get("type")
 
     # Session ownership validation — skip for ping and create_session
-    if request_type not in ("ping", "create_session"):
+    if request_type not in ("ping", "create_session", "run_scheduled_task"):
         validation = await validate_session_ownership(session_id, user_sub)
         if validation != "authorized":
             return error_envelope("auth_error", "Session not found or access denied")
@@ -175,6 +176,18 @@ async def invoke(request: InvocationRequest, http_request: Request):
 
     if request_type == "create_session":
         return await handlers.handle_create_session(user_sub, session_id)
+
+    if request_type == "run_scheduled_task":
+        import asyncio
+        job_id = request.input.get("job_id", "")
+        execution_id = request.input.get("execution_id", "")
+        prompt = request.input.get("prompt", "")
+        _active_tasks[execution_id] = True
+        asyncio.create_task(_run_scheduled_task(
+            prompt=prompt, session_id=session_id, user_id=user_sub,
+            job_id=job_id, execution_id=execution_id,
+        ))
+        return JSONResponse({"type": "scheduled_task_accepted", "execution_id": execution_id})
 
     if request_type == "prepare":
         return await handlers.handle_prepare(request, session_id, user_sub)
@@ -224,7 +237,109 @@ async def invoke(request: InvocationRequest, http_request: Request):
 
 @app.get("/ping")
 async def ping():
+    if _active_tasks:
+        return JSONResponse({"status": "HealthyBusy"})
     return JSONResponse({"status": "Healthy"})
+
+
+# =========================================================================
+# Async scheduled task execution
+# =========================================================================
+_active_tasks: dict[str, bool] = {}
+
+
+async def _run_scheduled_task(
+    prompt: str, session_id: str, user_id: str,
+    job_id: str, execution_id: str,
+):
+    """Run an agent task in the background and write results to DynamoDB."""
+    import boto3
+    from datetime import datetime, timezone
+
+    region = os.environ.get("REGION", "us-east-1")
+    table_name = os.environ.get("TASK_EXECUTIONS_TABLE")
+    s3_bucket = os.environ.get("S3_BUCKET")
+    if not table_name:
+        logger.error("TASK_EXECUTIONS_TABLE not configured")
+        return
+
+    dynamodb = boto3.resource("dynamodb", region_name=region)
+    table = dynamodb.Table(table_name)
+    max_dynamo_bytes = 400_000
+
+    try:
+        agent = await agent_manager.get_agent(user_id=user_id)
+        config = {
+            "configurable": {"thread_id": session_id, "actor_id": user_id},
+            "recursion_limit": 200,
+        }
+        content = [{"type": "text", "text": prompt}]
+        text_parts = []
+
+        from langchain_core.messages import AIMessageChunk
+
+        async for stream_part in agent.astream(
+            {"messages": [{"role": "user", "content": content}]},
+            config,
+            stream_mode=["messages"],
+            version="v2",
+        ):
+            if stream_part["type"] == "messages":
+                chunk = stream_part["data"][0]
+                # Only capture AI text content, not tool calls/results
+                if (
+                    isinstance(chunk, AIMessageChunk)
+                    and isinstance(chunk.content, str)
+                    and chunk.content
+                    and not chunk.tool_calls
+                    and not chunk.tool_call_chunks
+                ):
+                    text_parts.append(chunk.content)
+
+        output = "".join(text_parts)
+        now = datetime.now(timezone.utc).isoformat()
+
+        # Offload large output to S3
+        output_field, output_value = "#o", output
+        attr_names = {"#s": "status", "#o": "output"}
+        if output and len(output.encode("utf-8")) > max_dynamo_bytes:
+            s3_key = f"task-outputs/{job_id}/{execution_id}.txt"
+            s3 = boto3.client("s3", region_name=region)
+            s3.put_object(Bucket=s3_bucket, Key=s3_key, Body=output.encode("utf-8"))
+            output_field, output_value = "output_s3_key", s3_key
+            attr_names = {"#s": "status"}
+
+        update_expr = "SET #s = :s, finished_at = :f"
+        attr_values = {":s": "completed", ":f": now}
+        if output_value:
+            if output_field == "#o":
+                update_expr += ", #o = :o"
+            else:
+                update_expr += ", output_s3_key = :o"
+            attr_values[":o"] = output_value
+
+        table.update_item(
+            Key={"job_id": job_id, "execution_id": execution_id},
+            UpdateExpression=update_expr,
+            ExpressionAttributeNames=attr_names,
+            ExpressionAttributeValues=attr_values,
+        )
+        logger.info("Scheduled task %s execution %s completed", job_id, execution_id)
+
+    except Exception as e:
+        logger.exception("Scheduled task %s failed", job_id)
+        now = datetime.now(timezone.utc).isoformat()
+        try:
+            table.update_item(
+                Key={"job_id": job_id, "execution_id": execution_id},
+                UpdateExpression="SET #s = :s, finished_at = :f, error_message = :e",
+                ExpressionAttributeNames={"#s": "status"},
+                ExpressionAttributeValues={":s": "failed", ":f": now, ":e": str(e)[:2000]},
+            )
+        except Exception:
+            logger.exception("Failed to record task failure")
+    finally:
+        _active_tasks.pop(execution_id, None)
 
 
 if __name__ == "__main__":
