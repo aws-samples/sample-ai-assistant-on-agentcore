@@ -191,12 +191,16 @@ function TaskDetail({ jobId, onBack }) {
                     const started = exec.started_at ? new Date(exec.started_at) : null;
                     const finished = exec.finished_at ? new Date(exec.finished_at) : null;
                     const isRunning = exec.status === "running";
-                    const duration =
-                      started && finished
-                        ? `${Math.round((finished - started) / 1000)}s`
-                        : isRunning && started
-                          ? `${Math.round((Date.now() - started) / 1000)}s…`
-                          : "—";
+                    const totalSec = started && finished
+                      ? Math.round((finished - started) / 1000)
+                      : isRunning && started
+                        ? Math.round((Date.now() - started) / 1000)
+                        : null;
+                    const duration = totalSec != null
+                      ? totalSec >= 60
+                        ? `${Math.floor(totalSec / 60)}m ${totalSec % 60}s${isRunning ? "…" : ""}`
+                        : `${totalSec}s${isRunning ? "…" : ""}`
+                      : "—";
                     return (
                       <tr key={exec.execution_id}>
                         <td>{started ? started.toLocaleString() : "—"}</td>

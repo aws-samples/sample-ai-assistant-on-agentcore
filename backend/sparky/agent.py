@@ -274,29 +274,20 @@ async def _run_scheduled_task(
             "recursion_limit": 200,
         }
         content = [{"type": "text", "text": prompt}]
-        text_parts = []
 
-        from langchain_core.messages import AIMessageChunk
+        from langchain_core.messages import AIMessage
 
-        async for stream_part in agent.astream(
+        result = await agent.ainvoke(
             {"messages": [{"role": "user", "content": content}]},
             config,
-            stream_mode=["messages"],
-            version="v2",
-        ):
-            if stream_part["type"] == "messages":
-                chunk = stream_part["data"][0]
-                # Only capture AI text content, not tool calls/results
-                if (
-                    isinstance(chunk, AIMessageChunk)
-                    and isinstance(chunk.content, str)
-                    and chunk.content
-                    and not chunk.tool_calls
-                    and not chunk.tool_call_chunks
-                ):
-                    text_parts.append(chunk.content)
+        )
 
-        output = "".join(text_parts)
+        # Extract the last AI message as the output
+        output = ""
+        for msg in reversed(result.get("messages", [])):
+            if isinstance(msg, AIMessage) and msg.content:
+                output = msg.content if isinstance(msg.content, str) else str(msg.content)
+                break
         now = datetime.now(timezone.utc).isoformat()
 
         update_expr = "SET #s = :s, finished_at = :f"

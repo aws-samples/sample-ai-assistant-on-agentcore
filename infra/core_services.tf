@@ -413,7 +413,10 @@ resource "aws_iam_role_policy" "core_services_s3_policy" {
         Action = [
           "s3:GetObject"
         ]
-        Resource = "${aws_s3_bucket.artifact_bucket.arn}/artifact/*"
+        Resource = [
+          "${aws_s3_bucket.artifact_bucket.arn}/artifact/*",
+          "${aws_s3_bucket.artifact_bucket.arn}/task-outputs/*"
+        ]
       }
     ]
   })

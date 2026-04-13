@@ -248,7 +248,10 @@ resource "aws_iam_role_policy" "agent_core_policy" {
         "Sid" : "S3PutArtifacts",
         "Effect" : "Allow",
         "Action" : ["s3:PutObject"],
-        "Resource" : "${aws_s3_bucket.artifact_bucket.arn}/artifact/*"
+        "Resource" : [
+          "${aws_s3_bucket.artifact_bucket.arn}/artifact/*",
+          "${aws_s3_bucket.artifact_bucket.arn}/task-outputs/*"
+        ]
       },
       {
         "Sid" : "S3PutImages",
