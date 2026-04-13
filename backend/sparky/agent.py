@@ -299,24 +299,21 @@ async def _run_scheduled_task(
         output = "".join(text_parts)
         now = datetime.now(timezone.utc).isoformat()
 
-        # Offload large output to S3
-        output_field, output_value = "#o", output
-        attr_names = {"#s": "status", "#o": "output"}
-        if output and len(output.encode("utf-8")) > max_dynamo_bytes:
-            s3_key = f"task-outputs/{job_id}/{execution_id}.txt"
-            s3 = boto3.client("s3", region_name=region)
-            s3.put_object(Bucket=s3_bucket, Key=s3_key, Body=output.encode("utf-8"))
-            output_field, output_value = "output_s3_key", s3_key
-            attr_names = {"#s": "status"}
-
         update_expr = "SET #s = :s, finished_at = :f"
+        attr_names = {"#s": "status"}
         attr_values = {":s": "completed", ":f": now}
-        if output_value:
-            if output_field == "#o":
-                update_expr += ", #o = :o"
-            else:
+
+        if output:
+            if len(output.encode("utf-8")) > max_dynamo_bytes:
+                s3_key = f"task-outputs/{job_id}/{execution_id}.txt"
+                s3 = boto3.client("s3", region_name=region)
+                s3.put_object(Bucket=s3_bucket, Key=s3_key, Body=output.encode("utf-8"))
                 update_expr += ", output_s3_key = :o"
-            attr_values[":o"] = output_value
+                attr_values[":o"] = s3_key
+            else:
+                update_expr += ", #o = :o"
+                attr_names["#o"] = "output"
+                attr_values[":o"] = output
 
         table.update_item(
             Key={"job_id": job_id, "execution_id": execution_id},
