@@ -93,66 +93,66 @@ Two AgentCore runtimes (Docker containers on ECR), three Lambdas, DynamoDB table
 
 ## Key backend files
 
-| File | Purpose |
-|------|---------|
-| `backend/sparky/agent.py` | FastAPI app, `/invocations` endpoint, request routing |
-| `backend/sparky/graph.py` | LangGraph agent graph, state definition (Canvas, MessagesState) |
-| `backend/sparky/agent_manager.py` | Agent lifecycle, tool registration, model creation |
-| `backend/sparky/tools.py` | Tool definitions: Tavily search, code interpreter, skills, download links |
-| `backend/sparky/canvas.py` | Canvas tool definitions (6 types: document, html, code, diagram, svg, mermaid) |
-| `backend/sparky/browser.py` | Browser tool via Playwright/CDP |
-| `backend/sparky/streaming.py` | SSE streaming, stream state management, reconnection support |
-| `backend/sparky/prompt.py` | System prompt construction |
-| `backend/sparky/config.py` | Model config parsing, Bedrock client, checkpointer setup |
-| `backend/sparky/mcp_lifecycle_manager.py` | MCP server connection lifecycle |
-| `backend/sparky/hybrid_checkpointer.py` | DynamoDB + in-memory cache checkpointer |
-| `backend/sparky/research_agent.py` | Research mode sub-agent |
-| `backend/core_services/agent.py` | Core Services FastAPI app |
-| `backend/core_services/handlers.py` | All sync API route handlers |
-| `backend/core_services/skills_service.py` | Skills CRUD and S3 sync |
-| `backend/core_services/tool_config_service.py` | Per-user tool configuration |
-| `backend/core_services/scheduled_task_service.py` | Scheduled task CRUD, EventBridge Scheduler management |
-| `backend/task_executor/handler.py` | Scheduled task executor Lambda (SQS → Cognito M2M token → AgentCore invoke) |
+| File                                              | Purpose                                                                        |
+| ------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `backend/sparky/agent.py`                         | FastAPI app, `/invocations` endpoint, request routing                          |
+| `backend/sparky/graph.py`                         | LangGraph agent graph, state definition (Canvas, MessagesState)                |
+| `backend/sparky/agent_manager.py`                 | Agent lifecycle, tool registration, model creation                             |
+| `backend/sparky/tools.py`                         | Tool definitions: Tavily search, code interpreter, skills, download links      |
+| `backend/sparky/canvas.py`                        | Canvas tool definitions (6 types: document, html, code, diagram, svg, mermaid) |
+| `backend/sparky/browser.py`                       | Browser tool via Playwright/CDP                                                |
+| `backend/sparky/streaming.py`                     | SSE streaming, stream state management, reconnection support                   |
+| `backend/sparky/prompt.py`                        | System prompt construction                                                     |
+| `backend/sparky/config.py`                        | Model config parsing, Bedrock client, checkpointer setup                       |
+| `backend/sparky/mcp_lifecycle_manager.py`         | MCP server connection lifecycle                                                |
+| `backend/sparky/hybrid_checkpointer.py`           | DynamoDB + in-memory cache checkpointer                                        |
+| `backend/sparky/research_agent.py`                | Research mode sub-agent                                                        |
+| `backend/core_services/agent.py`                  | Core Services FastAPI app                                                      |
+| `backend/core_services/handlers.py`               | All sync API route handlers                                                    |
+| `backend/core_services/skills_service.py`         | Skills CRUD and S3 sync                                                        |
+| `backend/core_services/tool_config_service.py`    | Per-user tool configuration                                                    |
+| `backend/core_services/scheduled_task_service.py` | Scheduled task CRUD, EventBridge Scheduler management                          |
+| `backend/task_executor/handler.py`                | Scheduled task executor Lambda (SQS → Cognito M2M token → AgentCore invoke)    |
 
 ## Key frontend files
 
-| File | Purpose |
-|------|---------|
-| `src/App.jsx` | Root component, auth flow, theme, sidebar layout |
-| `src/config.js` | Amplify/Cognito config, model config parsing |
-| `src/components/Agent/AgentInterface.jsx` | Main chat interface |
-| `src/components/Agent/ChatInput.jsx` | Message input with attachments, model selector |
-| `src/components/Agent/CanvasPanel.jsx` | Side panel for canvas content |
-| `src/components/Agent/context/api.js` | Backend API client |
-| `src/components/Agent/context/streamChunkHandler.js` | SSE stream chunk processing |
-| `src/components/Agent/useChatSessionFunctions.js` | Chat session state management |
-| `src/pages/ToolConfig/ToolConfigPage.jsx` | Tool and MCP server configuration UI |
-| `src/pages/Skills/SkillsPage.jsx` | Skills management UI |
-| `src/pages/Projects/ProjectsPage.jsx` | Projects management UI |
-| `src/pages/ScheduledTasks/ScheduledTasksPage.jsx` | Scheduled tasks management UI (list, detail, create/edit, manual trigger, execution history) |
-| `src/services/scheduledTasksService.js` | Scheduled tasks API client |
+| File                                                 | Purpose                                                                                      |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `src/App.jsx`                                        | Root component, auth flow, theme, sidebar layout                                             |
+| `src/config.js`                                      | Amplify/Cognito config, model config parsing                                                 |
+| `src/components/Agent/AgentInterface.jsx`            | Main chat interface                                                                          |
+| `src/components/Agent/ChatInput.jsx`                 | Message input with attachments, model selector                                               |
+| `src/components/Agent/CanvasPanel.jsx`               | Side panel for canvas content                                                                |
+| `src/components/Agent/context/api.js`                | Backend API client                                                                           |
+| `src/components/Agent/context/streamChunkHandler.js` | SSE stream chunk processing                                                                  |
+| `src/components/Agent/useChatSessionFunctions.js`    | Chat session state management                                                                |
+| `src/pages/ToolConfig/ToolConfigPage.jsx`            | Tool and MCP server configuration UI                                                         |
+| `src/pages/Skills/SkillsPage.jsx`                    | Skills management UI                                                                         |
+| `src/pages/Projects/ProjectsPage.jsx`                | Projects management UI                                                                       |
+| `src/pages/ScheduledTasks/ScheduledTasksPage.jsx`    | Scheduled tasks management UI (list, detail, create/edit, manual trigger, execution history) |
+| `src/services/scheduledTasksService.js`              | Scheduled tasks API client                                                                   |
 
 ## Terraform modules
 
 All in `infra/`. Key files:
 
-| File | Resources |
-|------|-----------|
-| `sparky.tf` | Sparky AgentCore runtime, ECR repo, IAM roles |
-| `core_services.tf` | Core Services AgentCore runtime, ECR repo, IAM roles |
-| `cognito.tf` | User pool, app client, domain |
-| `dynamodb.tf` | Chat history, tool config, skills tables |
-| `s3.tf` | Artifact and skills buckets |
-| `kb_indexing.tf` | KB indexer Lambda, SQS queue, Bedrock Knowledge Base, data source |
-| `expiry_cleanup.tf` | Expiry cleanup Lambda, SQS queue, EventBridge Pipe |
-| `projects.tf` | Project DynamoDB tables, S3 bucket, Bedrock KB for projects |
-| `amplify.tf` | Amplify app and branch |
-| `checkpointer.tf` | Checkpoint DynamoDB table and S3 bucket |
-| `agentcore_memory.tf` | AgentCore Memory resource |
-| `system_skills.tf` | S3 upload of system-skills to skills bucket |
-| `scheduled_tasks.tf` | Scheduled task DynamoDB tables, SQS queue, executor Lambda, EventBridge Scheduler IAM, Cognito M2M client |
-| `project_memory.tf` | Project memory AgentCore resource |
-| `variables.tf` | All input variables including model config |
+| File                  | Resources                                                                                                 |
+| --------------------- | --------------------------------------------------------------------------------------------------------- |
+| `sparky.tf`           | Sparky AgentCore runtime, ECR repo, IAM roles                                                             |
+| `core_services.tf`    | Core Services AgentCore runtime, ECR repo, IAM roles                                                      |
+| `cognito.tf`          | User pool, app client, domain                                                                             |
+| `dynamodb.tf`         | Chat history, tool config, skills tables                                                                  |
+| `s3.tf`               | Artifact and skills buckets                                                                               |
+| `kb_indexing.tf`      | KB indexer Lambda, SQS queue, Bedrock Knowledge Base, data source                                         |
+| `expiry_cleanup.tf`   | Expiry cleanup Lambda, SQS queue, EventBridge Pipe                                                        |
+| `projects.tf`         | Project DynamoDB tables, S3 bucket, Bedrock KB for projects                                               |
+| `amplify.tf`          | Amplify app and branch                                                                                    |
+| `checkpointer.tf`     | Checkpoint DynamoDB table and S3 bucket                                                                   |
+| `agentcore_memory.tf` | AgentCore Memory resource                                                                                 |
+| `system_skills.tf`    | S3 upload of system-skills to skills bucket                                                               |
+| `scheduled_tasks.tf`  | Scheduled task DynamoDB tables, SQS queue, executor Lambda, EventBridge Scheduler IAM, Cognito M2M client |
+| `project_memory.tf`   | Project memory AgentCore resource                                                                         |
+| `variables.tf`        | All input variables including model config                                                                |
 
 ## Code style
 

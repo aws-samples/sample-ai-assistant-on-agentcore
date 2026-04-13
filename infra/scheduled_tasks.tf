@@ -69,21 +69,21 @@ resource "aws_dynamodb_table" "scheduled_task_executions" {
   }
 
   attribute {
-    name = "user_id"
+    name = "started_at"
     type = "S"
   }
 
   global_secondary_index {
-    name            = "user-executions-index"
+    name            = "job-started-index"
     projection_type = "ALL"
 
     key_schema {
-      attribute_name = "user_id"
+      attribute_name = "job_id"
       key_type       = "HASH"
     }
 
     key_schema {
-      attribute_name = "execution_id"
+      attribute_name = "started_at"
       key_type       = "RANGE"
     }
   }

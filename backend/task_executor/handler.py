@@ -39,7 +39,9 @@ _REQUIRED_ENV = {
 }
 _missing = [k for k, v in _REQUIRED_ENV.items() if not v]
 if _missing:
-    raise EnvironmentError(f"Missing required environment variables: {', '.join(_missing)}")
+    raise EnvironmentError(
+        f"Missing required environment variables: {', '.join(_missing)}"
+    )
 
 dynamodb = boto3.resource("dynamodb", region_name=REGION)
 jobs_table = dynamodb.Table(TASK_JOBS_TABLE)
@@ -50,6 +52,7 @@ _cached_token = {"access_token": None, "expires_at": 0}
 
 def _now_iso() -> str:
     from datetime import datetime, timezone
+
     return datetime.now(timezone.utc).isoformat()
 
 
@@ -59,16 +62,26 @@ def _get_access_token() -> str:
         return _cached_token["access_token"]
 
     import base64
-    creds = base64.b64encode(f"{COGNITO_CLIENT_ID}:{COGNITO_CLIENT_SECRET}".encode()).decode()
-    data = urllib.parse.urlencode({
-        "grant_type": "client_credentials",
-        "scope": COGNITO_SCOPE,
-    }).encode()
 
-    req = Request(COGNITO_TOKEN_URL, data=data, method="POST", headers={
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Authorization": f"Basic {creds}",
-    })
+    creds = base64.b64encode(
+        f"{COGNITO_CLIENT_ID}:{COGNITO_CLIENT_SECRET}".encode()
+    ).decode()
+    data = urllib.parse.urlencode(
+        {
+            "grant_type": "client_credentials",
+            "scope": COGNITO_SCOPE,
+        }
+    ).encode()
+
+    req = Request(
+        COGNITO_TOKEN_URL,
+        data=data,
+        method="POST",
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Authorization": f"Basic {creds}",
+        },
+    )
     try:
         with urlopen(req, timeout=10) as resp:
             token_data = json.loads(resp.read())
@@ -82,11 +95,15 @@ def _get_access_token() -> str:
 
 
 def _invoke_runtime_async(
-    prompt: str, session_id: str, user_id: str, job_id: str, execution_id: str,
+    prompt: str,
+    session_id: str,
+    user_id: str,
+    job_id: str,
+    execution_id: str,
 ) -> None:
     """Fire-and-forget: tell Sparky to run the task asynchronously."""
     token = _get_access_token()
-    encoded_arn = urllib.parse.quote(SPARKY_RUNTIME_ARN, safe='')
+    encoded_arn = urllib.parse.quote(SPARKY_RUNTIME_ARN, safe="")
     url = f"https://bedrock-agentcore.{REGION}.amazonaws.com/runtimes/{encoded_arn}/invocations?qualifier=DEFAULT"
     headers = {
         "Content-Type": "application/json",
@@ -95,13 +112,17 @@ def _invoke_runtime_async(
     }
 
     # Single call — Sparky handles create_session internally for this type
-    body = json.dumps({"input": {
-        "type": "run_scheduled_task",
-        "prompt": prompt,
-        "user_id": user_id,
-        "job_id": job_id,
-        "execution_id": execution_id,
-    }}).encode()
+    body = json.dumps(
+        {
+            "input": {
+                "type": "run_scheduled_task",
+                "prompt": prompt,
+                "user_id": user_id,
+                "job_id": job_id,
+                "execution_id": execution_id,
+            }
+        }
+    ).encode()
 
     req = Request(url, data=body, method="POST", headers=headers)
     try:
@@ -128,7 +149,9 @@ def handler(event, context):
             logger.info("Executing scheduled task %s for user %s", job_id, user_id)
 
             # 1. Read job definition
-            job = jobs_table.get_item(Key={"user_id": user_id, "job_id": job_id}).get("Item")
+            job = jobs_table.get_item(Key={"user_id": user_id, "job_id": job_id}).get(
+                "Item"
+            )
             if not job:
                 logger.warning("Job %s not found, skipping", job_id)
                 continue
@@ -138,13 +161,15 @@ def handler(event, context):
                 continue
 
             # 2. Create execution record (status=running)
-            executions_table.put_item(Item={
-                "job_id": job_id,
-                "execution_id": execution_id,
-                "user_id": user_id,
-                "status": "running",
-                "started_at": _now_iso(),
-            })
+            executions_table.put_item(
+                Item={
+                    "job_id": job_id,
+                    "execution_id": execution_id,
+                    "user_id": user_id,
+                    "status": "running",
+                    "started_at": _now_iso(),
+                }
+            )
 
             # 3. Fire async invocation — Sparky handles the rest
             _invoke_runtime_async(
@@ -154,10 +179,14 @@ def handler(event, context):
                 job_id=job_id,
                 execution_id=execution_id,
             )
-            logger.info("Scheduled task %s dispatched (execution %s)", job_id, execution_id)
+            logger.info(
+                "Scheduled task %s dispatched (execution %s)", job_id, execution_id
+            )
 
         except Exception as e:
-            logger.exception("Failed to dispatch scheduled task %s", job_id or message_id)
+            logger.exception(
+                "Failed to dispatch scheduled task %s", job_id or message_id
+            )
             if job_id:
                 try:
                     executions_table.update_item(
@@ -165,7 +194,9 @@ def handler(event, context):
                         UpdateExpression="SET #s = :s, finished_at = :f, error_message = :e",
                         ExpressionAttributeNames={"#s": "status"},
                         ExpressionAttributeValues={
-                            ":s": "failed", ":f": _now_iso(), ":e": str(e)[:2000],
+                            ":s": "failed",
+                            ":f": _now_iso(),
+                            ":e": str(e)[:2000],
                         },
                     )
                 except Exception:

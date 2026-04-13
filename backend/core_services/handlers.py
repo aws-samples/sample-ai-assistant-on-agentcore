@@ -2766,8 +2766,12 @@ class RequestHandlers:
 
     @staticmethod
     async def handle_create_scheduled_task(
-        user_id: str, name: str, prompt: str, schedule_expression: str,
-        timezone_str: str = "UTC", skills: Optional[list] = None,
+        user_id: str,
+        name: str,
+        prompt: str,
+        schedule_expression: str,
+        timezone_str: str = "UTC",
+        skills: Optional[list] = None,
     ) -> JSONResponse:
         try:
             if not name or not name.strip():
@@ -2775,24 +2779,39 @@ class RequestHandlers:
             if not prompt or not prompt.strip():
                 return error_envelope("validation_error", "prompt is required")
             if not schedule_expression:
-                return error_envelope("validation_error", "schedule_expression is required")
+                return error_envelope(
+                    "validation_error", "schedule_expression is required"
+                )
             from scheduled_task_service import scheduled_task_service
+
             job = await scheduled_task_service.create_job(
-                user_id=user_id, name=name, prompt=prompt,
+                user_id=user_id,
+                name=name,
+                prompt=prompt,
                 schedule_expression=schedule_expression,
-                timezone_str=timezone_str, skills=skills,
+                timezone_str=timezone_str,
+                skills=skills,
             )
-            return JSONResponse({"type": "scheduled_task_created", "job": job}, headers=CORS_HEADERS)
+            return JSONResponse(
+                {"type": "scheduled_task_created", "job": job}, headers=CORS_HEADERS
+            )
         except Exception as e:
             logger.error(f"Failed to create scheduled task: {e}")
             return error_envelope("internal_error", "Failed to create scheduled task")
 
     @staticmethod
-    async def handle_list_scheduled_tasks(user_id: str, limit: int = 50, cursor=None) -> JSONResponse:
+    async def handle_list_scheduled_tasks(
+        user_id: str, limit: int = 50, cursor=None
+    ) -> JSONResponse:
         try:
             from scheduled_task_service import scheduled_task_service
-            result = await scheduled_task_service.list_jobs(user_id=user_id, limit=limit, cursor=cursor)
-            return JSONResponse({"type": "scheduled_tasks_list", **result}, headers=CORS_HEADERS)
+
+            result = await scheduled_task_service.list_jobs(
+                user_id=user_id, limit=limit, cursor=cursor
+            )
+            return JSONResponse(
+                {"type": "scheduled_tasks_list", **result}, headers=CORS_HEADERS
+            )
         except Exception as e:
             logger.error(f"Failed to list scheduled tasks: {e}")
             return error_envelope("internal_error", "Failed to list scheduled tasks")
@@ -2803,31 +2822,46 @@ class RequestHandlers:
             if not job_id:
                 return error_envelope("validation_error", "job_id is required")
             from scheduled_task_service import scheduled_task_service
+
             job = await scheduled_task_service.get_job(user_id, job_id)
             if not job:
                 return error_envelope("not_found", "Scheduled task not found")
-            return JSONResponse({"type": "scheduled_task", "job": job}, headers=CORS_HEADERS)
+            return JSONResponse(
+                {"type": "scheduled_task", "job": job}, headers=CORS_HEADERS
+            )
         except Exception as e:
             logger.error(f"Failed to get scheduled task {job_id}: {e}")
             return error_envelope("internal_error", "Failed to get scheduled task")
 
     @staticmethod
     async def handle_update_scheduled_task(
-        user_id: str, job_id: str, name=None, prompt=None,
-        schedule_expression=None, timezone_str=None, skills=None,
+        user_id: str,
+        job_id: str,
+        name=None,
+        prompt=None,
+        schedule_expression=None,
+        timezone_str=None,
+        skills=None,
     ) -> JSONResponse:
         try:
             if not job_id:
                 return error_envelope("validation_error", "job_id is required")
             from scheduled_task_service import scheduled_task_service
+
             job = await scheduled_task_service.update_job(
-                user_id=user_id, job_id=job_id, name=name, prompt=prompt,
+                user_id=user_id,
+                job_id=job_id,
+                name=name,
+                prompt=prompt,
                 schedule_expression=schedule_expression,
-                timezone_str=timezone_str, skills=skills,
+                timezone_str=timezone_str,
+                skills=skills,
             )
             if not job:
                 return error_envelope("not_found", "Scheduled task not found")
-            return JSONResponse({"type": "scheduled_task_updated", "job": job}, headers=CORS_HEADERS)
+            return JSONResponse(
+                {"type": "scheduled_task_updated", "job": job}, headers=CORS_HEADERS
+            )
         except Exception as e:
             logger.error(f"Failed to update scheduled task {job_id}: {e}")
             return error_envelope("internal_error", "Failed to update scheduled task")
@@ -2838,24 +2872,33 @@ class RequestHandlers:
             if not job_id:
                 return error_envelope("validation_error", "job_id is required")
             from scheduled_task_service import scheduled_task_service
+
             deleted = await scheduled_task_service.delete_job(user_id, job_id)
             if not deleted:
                 return error_envelope("not_found", "Scheduled task not found")
-            return JSONResponse({"type": "scheduled_task_deleted", "job_id": job_id}, headers=CORS_HEADERS)
+            return JSONResponse(
+                {"type": "scheduled_task_deleted", "job_id": job_id},
+                headers=CORS_HEADERS,
+            )
         except Exception as e:
             logger.error(f"Failed to delete scheduled task {job_id}: {e}")
             return error_envelope("internal_error", "Failed to delete scheduled task")
 
     @staticmethod
-    async def handle_toggle_scheduled_task(user_id: str, job_id: str, enabled: bool) -> JSONResponse:
+    async def handle_toggle_scheduled_task(
+        user_id: str, job_id: str, enabled: bool
+    ) -> JSONResponse:
         try:
             if not job_id:
                 return error_envelope("validation_error", "job_id is required")
             from scheduled_task_service import scheduled_task_service
+
             job = await scheduled_task_service.toggle_job(user_id, job_id, enabled)
             if not job:
                 return error_envelope("not_found", "Scheduled task not found")
-            return JSONResponse({"type": "scheduled_task_toggled", "job": job}, headers=CORS_HEADERS)
+            return JSONResponse(
+                {"type": "scheduled_task_toggled", "job": job}, headers=CORS_HEADERS
+            )
         except Exception as e:
             logger.error(f"Failed to toggle scheduled task {job_id}: {e}")
             return error_envelope("internal_error", "Failed to toggle scheduled task")
@@ -2866,10 +2909,14 @@ class RequestHandlers:
             if not job_id:
                 return error_envelope("validation_error", "job_id is required")
             from scheduled_task_service import scheduled_task_service
+
             triggered = await scheduled_task_service.trigger_job(user_id, job_id)
             if not triggered:
                 return error_envelope("not_found", "Scheduled task not found")
-            return JSONResponse({"type": "scheduled_task_triggered", "job_id": job_id}, headers=CORS_HEADERS)
+            return JSONResponse(
+                {"type": "scheduled_task_triggered", "job_id": job_id},
+                headers=CORS_HEADERS,
+            )
         except Exception as e:
             logger.error(f"Failed to trigger scheduled task {job_id}: {e}")
             return error_envelope("internal_error", "Failed to trigger scheduled task")
@@ -2882,10 +2929,16 @@ class RequestHandlers:
             if not job_id:
                 return error_envelope("validation_error", "job_id is required")
             from scheduled_task_service import scheduled_task_service
+
             result = await scheduled_task_service.list_executions(
-                job_id=job_id, user_id=user_id, limit=limit, cursor=cursor,
+                job_id=job_id,
+                user_id=user_id,
+                limit=limit,
+                cursor=cursor,
             )
-            return JSONResponse({"type": "task_executions_list", **result}, headers=CORS_HEADERS)
+            return JSONResponse(
+                {"type": "task_executions_list", **result}, headers=CORS_HEADERS
+            )
         except Exception as e:
             logger.error(f"Failed to list executions for job {job_id}: {e}")
             return error_envelope("internal_error", "Failed to list executions")
@@ -2896,9 +2949,14 @@ class RequestHandlers:
     ) -> JSONResponse:
         try:
             if not job_id or not execution_id:
-                return error_envelope("validation_error", "job_id and execution_id are required")
+                return error_envelope(
+                    "validation_error", "job_id and execution_id are required"
+                )
             from scheduled_task_service import scheduled_task_service
-            execution = await scheduled_task_service.get_execution(job_id, execution_id, user_id)
+
+            execution = await scheduled_task_service.get_execution(
+                job_id, execution_id, user_id
+            )
             if not execution:
                 return error_envelope("not_found", "Execution not found")
             return JSONResponse(

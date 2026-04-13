@@ -17,7 +17,6 @@
   align-items: center;
   justify-content: space-between;
   padding: 1rem 1.5rem;
-  border-bottom: 1px solid var(--color-border);
 }
 
 .st-header-left {
@@ -46,40 +45,6 @@
 .st-content {
   padding: 1rem 1.5rem 1.5rem;
   max-width: 1200px;
-}
-
-/* Job list table */
-.st-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.st-table th,
-.st-table td {
-  text-align: left;
-  padding: 0.625rem 1rem;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.st-table th {
-  font-size: 0.75rem;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--color-muted-foreground);
-}
-
-.st-table tr:hover td {
-  background: var(--color-accent);
-}
-
-.st-table .st-name {
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.st-table .st-name:hover {
-  text-decoration: underline;
 }
 
 /* Status badges */
@@ -175,36 +140,13 @@
 }
 
 .st-detail-prompt {
-  background: var(--color-accent);
-  border: 1px solid var(--color-border);
+  background: var(--chat-bubble-incoming);
   border-radius: 0.5rem;
   padding: 1rem;
-  margin-bottom: 1.5rem;
+  margin-bottom: 0.5rem;
   white-space: pre-wrap;
   font-size: 0.875rem;
   line-height: 1.6;
-}
-
-/* Execution history table */
-.st-exec-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.875rem;
-}
-
-.st-exec-table th,
-.st-exec-table td {
-  text-align: left;
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--color-border);
-}
-
-.st-exec-table th {
-  font-size: 0.75rem;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--color-muted-foreground);
 }
 
 .exec-status {
@@ -224,42 +166,110 @@
   color: #3b82f6;
 }
 
-/* Output viewer */
-.st-output-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+/* Execution output sheet — drag handle (matches shadcn ResizableHandle) */
+.exec-output-drag-handle {
+  position: absolute;
+  top: 0;
+  left: -8px;
+  width: 16px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 60;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 50;
 }
 
-.st-output-panel {
-  background: var(--color-background);
-  border: 1px solid var(--color-border);
-  border-radius: 0.75rem;
-  width: min(90vw, 720px);
-  max-height: 80vh;
-  display: flex;
-  flex-direction: column;
-}
-
-.st-output-header {
+/* Grip indicator — small rounded pill with dots, like ResizableHandle withHandle */
+.exec-output-drag-handle::after {
+  content: "⠿";
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 1rem 1.25rem;
-  border-bottom: 1px solid var(--color-border);
-  font-weight: 600;
+  justify-content: center;
+  width: 12px;
+  height: 16px;
+  border-radius: 2px;
+  border: 1px solid var(--color-border);
+  background: var(--color-border);
+  font-size: 8px;
+  line-height: 1;
+  color: var(--color-muted-foreground);
 }
 
-.st-output-body {
-  padding: 1.25rem;
-  overflow-y: auto;
-  white-space: pre-wrap;
-  font-size: 0.875rem;
-  line-height: 1.6;
+/* Disable transition while dragging for instant resize */
+.exec-output-sheet.is-dragging {
+  transition: none !important;
+}
+
+/* Execution output sheet */
+.exec-output-sheet {
+  width: var(--sheet-width, 576px) !important;
+  max-width: 90vw !important;
+}
+
+.exec-output-sheet > button:first-child {
+  top: 1.875rem;
+  right: 1.5rem;
+}
+
+.exec-output-sheet[data-state="open"] {
+  animation: exec-sheet-slide-in 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.exec-output-sheet[data-state="closed"] {
+  animation: exec-sheet-slide-out 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@keyframes exec-sheet-slide-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes exec-sheet-slide-out {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+.exec-output-skeleton {
+  animation: skeleton-fade-in 0.4s ease both;
+}
+
+@keyframes skeleton-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.exec-output-content {
+  animation: content-fade-in 0.3s ease;
+}
+
+@keyframes content-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* Responsive */

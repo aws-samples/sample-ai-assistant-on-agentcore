@@ -77,6 +77,7 @@ async def lifespan(app: FastAPI):
             ]
         )
         await agent_manager.initialize_default_agent()
+        _agent_ready.set()
         logger.debug(
             "Agent initialized with local tools (MCP tools available via lifecycle manager)"
         )
@@ -147,7 +148,12 @@ async def invoke(request: InvocationRequest, http_request: Request):
     request_type = request.input.get("type")
 
     # Session ownership validation — skip for ping and create_session
-    if request_type not in ("ping", "create_session", "run_scheduled_task"):
+    if request_type not in (
+        "ping",
+        "create_session",
+        "run_scheduled_task",
+        "convert_execution_to_chat",
+    ):
         validation = await validate_session_ownership(session_id, user_sub)
         if validation != "authorized":
             return error_envelope("auth_error", "Session not found or access denied")
@@ -179,15 +185,32 @@ async def invoke(request: InvocationRequest, http_request: Request):
 
     if request_type == "run_scheduled_task":
         import asyncio
+
+        # Only the M2M task executor client may invoke scheduled tasks
+        m2m_client_id = os.environ.get("TASK_EXECUTOR_CLIENT_ID", "")
+        if not m2m_client_id or user_sub != m2m_client_id:
+            return error_envelope(
+                "auth_error", "Unauthorized: scheduled tasks require M2M credentials"
+            )
         job_id = request.input.get("job_id", "")
         execution_id = request.input.get("execution_id", "")
         prompt = request.input.get("prompt", "")
+        # M2M token sub is the Cognito client ID, not the actual user.
+        # Use the real user_id from the payload for tool config loading.
+        task_user_id = request.input.get("user_id") or user_sub
         _active_tasks[execution_id] = True
-        asyncio.create_task(_run_scheduled_task(
-            prompt=prompt, session_id=session_id, user_id=user_sub,
-            job_id=job_id, execution_id=execution_id,
-        ))
-        return JSONResponse({"type": "scheduled_task_accepted", "execution_id": execution_id})
+        asyncio.create_task(
+            _run_scheduled_task(
+                prompt=prompt,
+                session_id=session_id,
+                user_id=task_user_id,
+                job_id=job_id,
+                execution_id=execution_id,
+            )
+        )
+        return JSONResponse(
+            {"type": "scheduled_task_accepted", "execution_id": execution_id}
+        )
 
     if request_type == "prepare":
         return await handlers.handle_prepare(request, session_id, user_sub)
@@ -197,6 +220,9 @@ async def invoke(request: InvocationRequest, http_request: Request):
 
     if request_type == "branch":
         return await handlers.handle_branch(request, session_id, user_sub)
+
+    if request_type == "convert_execution_to_chat":
+        return await handlers.handle_convert_execution_to_chat(request, user_sub)
 
     if request_type == "canvas_edit":
         return await handlers.handle_canvas_edit(request.input, user_sub, session_id)
@@ -245,16 +271,136 @@ async def ping():
 # =========================================================================
 # Async scheduled task execution
 # =========================================================================
+import asyncio as _asyncio
+
 _active_tasks: dict[str, bool] = {}
+_agent_ready = _asyncio.Event()  # set once lifespan init completes
+
+# Tools that make no sense for headless scheduled tasks
+_TASK_EXCLUDED_TOOLS: set[str] = {
+    "manage_skill",
+    "browser",
+    "create_document",
+    "create_html_canvas",
+    "create_code_canvas",
+    "create_diagram",
+    "create_svg",
+    "create_mermaid",
+    "update_canvas",
+    "search_project_knowledge_base",
+    "recall_project_memory",
+    "load_project_canvas",
+}
+
+
+_WEB_SEARCH_TOOL_NAMES = {"tavily_search", "tavily-search", "web_search", "webSearch"}
+
+
+def _extract_web_search_results(messages) -> list[list[str]]:
+    """Build webSearchResults (list of URL lists) from ToolMessages in the conversation."""
+    import json as _json
+    from langchain_core.messages import ToolMessage
+
+    results = []
+    for msg in messages:
+        if not isinstance(msg, ToolMessage):
+            continue
+        if msg.name not in _WEB_SEARCH_TOOL_NAMES:
+            continue
+        raw = msg.content
+        urls = []
+        try:
+            parsed = _json.loads(raw) if isinstance(raw, str) else raw
+            items = []
+            if isinstance(parsed, list):
+                items = parsed
+            elif isinstance(parsed, dict):
+                items = parsed.get("results", [])
+            for item in items:
+                url = ""
+                if isinstance(item, str):
+                    url = item
+                elif isinstance(item, dict):
+                    url = item.get("url", "") or item.get("link", "")
+                if url:
+                    urls.append(url)
+        except Exception:
+            pass
+        if urls:
+            results.append(urls)
+    return results
+
+
+def _resolve_citations(output: str, messages) -> str:
+    """Resolve index-based <cite urls=[X:Y]> to <cite data-urls="..."> using tool results."""
+    import re
+
+    web_search_results = _extract_web_search_results(messages)
+    if not web_search_results:
+        return output
+
+    def _resolve_index(search_idx: int, result_idx: int) -> str | None:
+        si = search_idx - 1
+        ri = result_idx - 1
+        if si < 0 or si >= len(web_search_results):
+            return None
+        search_urls = web_search_results[si]
+        if ri < 0 or ri >= len(search_urls):
+            return None
+        return search_urls[ri]
+
+    def _replace_index_cite(m):
+        urls_content = m.group(1)
+        urls = []
+        for pair in re.finditer(r"(\d+):(\d+)", urls_content):
+            url = _resolve_index(int(pair.group(1)), int(pair.group(2)))
+            if url and url not in urls:
+                urls.append(url)
+        if urls:
+            encoded = ",".join(u.replace('"', "&quot;") for u in urls)
+            return f'<cite data-urls="{encoded}"></cite>'
+        return ""
+
+    # Resolve index-based citations
+    output = re.sub(
+        r"<cite\s+urls=\[([^\]]*)\]\s*>(?:</cite>)?",
+        _replace_index_cite,
+        output,
+        flags=re.IGNORECASE,
+    )
+
+    # Also resolve direct link citations to data-urls format
+    def _replace_link_cite(m):
+        links_content = m.group(1)
+        url_matches = re.findall(r"""["']([^"']+)["']""", links_content)
+        if url_matches:
+            encoded = ",".join(u.replace('"', "&quot;") for u in url_matches)
+            return f'<cite data-urls="{encoded}"></cite>'
+        return ""
+
+    output = re.sub(
+        r"""<cite\s+links=\[((?:"[^"]*"|'[^']*'|,|\s)*)\]\s*>(?:</cite>)?""",
+        _replace_link_cite,
+        output,
+        flags=re.IGNORECASE,
+    )
+
+    return output
 
 
 async def _run_scheduled_task(
-    prompt: str, session_id: str, user_id: str,
-    job_id: str, execution_id: str,
+    prompt: str,
+    session_id: str,
+    user_id: str,
+    job_id: str,
+    execution_id: str,
 ):
     """Run an agent task in the background and write results to DynamoDB."""
     import boto3
     from datetime import datetime, timezone
+
+    # Wait for lifespan init (tools + agent) to finish before invoking the agent
+    await _agent_ready.wait()
 
     region = os.environ.get("REGION", "us-east-1")
     table_name = os.environ.get("TASK_EXECUTIONS_TABLE")
@@ -268,7 +414,24 @@ async def _run_scheduled_task(
     max_dynamo_bytes = 400_000
 
     try:
+        # Load user-specific tool config (includes Tavily, MCP tools, etc.)
+        # Scheduled tasks skip the normal create_session/prepare flow,
+        # so we must load tools explicitly.
+        # Use build_tools_with_reconciliation (same as create_session) to
+        # pick up MCP tools + local tools like Tavily.
+        await agent_manager.build_tools_with_reconciliation(user_id)
+
+        # Filter out UI-only tools that don't apply to headless tasks
+        agent_manager.cached_tools = [
+            t
+            for t in agent_manager.cached_tools
+            if getattr(t, "name", "") not in _TASK_EXCLUDED_TOOLS
+        ]
+        agent_manager.cached_agent = None
+        agent_manager._normal_cache_key = None
+
         agent = await agent_manager.get_agent(user_id=user_id)
+
         config = {
             "configurable": {"thread_id": session_id, "actor_id": user_id},
             "recursion_limit": 200,
@@ -286,8 +449,14 @@ async def _run_scheduled_task(
         output = ""
         for msg in reversed(result.get("messages", [])):
             if isinstance(msg, AIMessage) and msg.content:
-                output = msg.content if isinstance(msg.content, str) else str(msg.content)
+                output = (
+                    msg.content if isinstance(msg.content, str) else str(msg.content)
+                )
                 break
+
+        # Resolve index-based citations to actual URLs before storing
+        if output:
+            output = _resolve_citations(output, result.get("messages", []))
         now = datetime.now(timezone.utc).isoformat()
 
         update_expr = "SET #s = :s, finished_at = :f"
@@ -322,7 +491,11 @@ async def _run_scheduled_task(
                 Key={"job_id": job_id, "execution_id": execution_id},
                 UpdateExpression="SET #s = :s, finished_at = :f, error_message = :e",
                 ExpressionAttributeNames={"#s": "status"},
-                ExpressionAttributeValues={":s": "failed", ":f": now, ":e": str(e)[:2000]},
+                ExpressionAttributeValues={
+                    ":s": "failed",
+                    ":f": now,
+                    ":e": str(e)[:2000],
+                },
             )
         except Exception:
             logger.exception("Failed to record task failure")

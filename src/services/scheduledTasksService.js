@@ -18,9 +18,8 @@ async function coreRequest(input) {
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
-      "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": createSparkySessionHeader(
-        CORE_SERVICES_SESSION_ID
-      ),
+      "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id":
+        createSparkySessionHeader(CORE_SERVICES_SESSION_ID),
     },
     body: JSON.stringify({ input }),
   });
@@ -37,8 +36,21 @@ export const listScheduledTasks = (limit = 50, cursor = null) =>
 export const getScheduledTask = (jobId) =>
   coreRequest({ type: "get_scheduled_task", job_id: jobId });
 
-export const createScheduledTask = ({ name, prompt, schedule_expression, timezone = "UTC", skills }) =>
-  coreRequest({ type: "create_scheduled_task", name, prompt, schedule_expression, timezone, skills });
+export const createScheduledTask = ({
+  name,
+  prompt,
+  schedule_expression,
+  timezone = "UTC",
+  skills,
+}) =>
+  coreRequest({
+    type: "create_scheduled_task",
+    name,
+    prompt,
+    schedule_expression,
+    timezone,
+    skills,
+  });
 
 export const updateScheduledTask = (jobId, updates) =>
   coreRequest({ type: "update_scheduled_task", job_id: jobId, ...updates });

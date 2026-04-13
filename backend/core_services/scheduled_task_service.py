@@ -53,9 +53,13 @@ def _now_iso() -> str:
 class ScheduledTaskService:
     def __init__(self):
         self.dynamodb = boto3.resource("dynamodb", region_name=REGION)
-        self.jobs_table = self.dynamodb.Table(TASK_JOBS_TABLE) if TASK_JOBS_TABLE else None
+        self.jobs_table = (
+            self.dynamodb.Table(TASK_JOBS_TABLE) if TASK_JOBS_TABLE else None
+        )
         self.executions_table = (
-            self.dynamodb.Table(TASK_EXECUTIONS_TABLE) if TASK_EXECUTIONS_TABLE else None
+            self.dynamodb.Table(TASK_EXECUTIONS_TABLE)
+            if TASK_EXECUTIONS_TABLE
+            else None
         )
         self.scheduler = boto3.client("scheduler", region_name=REGION)
         self.sqs = boto3.client("sqs", region_name=REGION)
@@ -138,7 +142,9 @@ class ScheduledTaskService:
         loop = asyncio.get_event_loop()
         resp = await loop.run_in_executor(
             None,
-            lambda: self.jobs_table.get_item(Key={"user_id": user_id, "job_id": job_id}),
+            lambda: self.jobs_table.get_item(
+                Key={"user_id": user_id, "job_id": job_id}
+            ),
         )
         item = resp.get("Item")
         return _fix_decimals(item) if item else None
@@ -200,7 +206,9 @@ class ScheduledTaskService:
             eff_sched = schedule_expression or job.get("schedule_expression", "")
             eff_tz = timezone_str or job.get("timezone", "UTC")
             if job.get("status") == "enabled":
-                await self._update_schedule(job_id, user_id, eff_sched, eff_tz, enabled=True)
+                await self._update_schedule(
+                    job_id, user_id, eff_sched, eff_tz, enabled=True
+                )
 
         return updated
 
@@ -222,7 +230,9 @@ class ScheduledTaskService:
         await self._delete_schedule(job_id)
         return True
 
-    async def toggle_job(self, user_id: str, job_id: str, enabled: bool) -> Optional[Dict]:
+    async def toggle_job(
+        self, user_id: str, job_id: str, enabled: bool
+    ) -> Optional[Dict]:
         job = await self.get_job(user_id, job_id)
         if not job:
             return None
@@ -242,8 +252,10 @@ class ScheduledTaskService:
 
         if enabled:
             await self._update_schedule(
-                job_id, user_id,
-                job["schedule_expression"], job.get("timezone", "UTC"),
+                job_id,
+                user_id,
+                job["schedule_expression"],
+                job.get("timezone", "UTC"),
                 enabled=True,
             )
         else:
@@ -282,6 +294,7 @@ class ScheduledTaskService:
             return {"executions": []}
 
         kwargs = {
+            "IndexName": "job-started-index",
             "KeyConditionExpression": "job_id = :jid",
             "ExpressionAttributeValues": {":jid": job_id},
             "ScanIndexForward": False,

@@ -27,6 +27,7 @@ resource "aws_bedrockagentcore_agent_runtime" "sparky" {
     CHECKPOINT_BUCKET          = local.checkpoint_bucket_name,
     CHECKPOINT_BUCKET_ENDPOINT = local.checkpoint_bucket_endpoint
     TASK_EXECUTIONS_TABLE      = aws_dynamodb_table.scheduled_task_executions.id
+    TASK_EXECUTOR_CLIENT_ID    = aws_cognito_user_pool_client.task_executor.id
   }
   authorizer_configuration {
     custom_jwt_authorizer {
