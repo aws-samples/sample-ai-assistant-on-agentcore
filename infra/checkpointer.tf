@@ -145,9 +145,9 @@ resource "aws_iam_role_policy" "sparky_checkpointer_policy" {
           Resource = "arn:aws:s3express:${var.region}:${data.aws_caller_identity.caller_identity.account_id}:bucket/${local.checkpoint_bucket_name}"
         },
         {
-          Sid    = "S3ExpressObjects"
-          Effect = "Allow"
-          Action = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:PutObjectTagging"]
+          Sid      = "S3ExpressObjects"
+          Effect   = "Allow"
+          Action   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:PutObjectTagging"]
           Resource = "arn:aws:s3express:${var.region}:${data.aws_caller_identity.caller_identity.account_id}:bucket/${local.checkpoint_bucket_name}/*"
         },
         {
@@ -159,11 +159,11 @@ resource "aws_iam_role_policy" "sparky_checkpointer_policy" {
           ]
           Resource = "arn:aws:s3express:${var.region}:${data.aws_caller_identity.caller_identity.account_id}:bucket/${local.checkpoint_bucket_name}"
         }
-      ] : [
+        ] : [
         {
-          Sid    = "S3CheckpointObjects"
-          Effect = "Allow"
-          Action = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:PutObjectTagging"]
+          Sid      = "S3CheckpointObjects"
+          Effect   = "Allow"
+          Action   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:PutObjectTagging"]
           Resource = "${aws_s3_bucket.checkpoint_offload[0].arn}/*"
         },
         {

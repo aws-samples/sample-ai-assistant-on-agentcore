@@ -4,6 +4,7 @@ import Agent from "./pages/Agent/Agent";
 import { ToolConfigPage } from "./pages/ToolConfig";
 import { SkillsPage } from "./pages/Skills";
 import { ProjectsPage } from "./pages/Projects";
+import { CronJobsPage } from "./pages/CronJobs";
 
 // Wrapper component to handle session ID from URL path
 function AgentWrapper({ user }) {
@@ -24,6 +25,8 @@ function Main({ user }) {
       <Route path="/skills" element={<SkillsPage />} />
       {/* Projects route */}
       <Route path="/projects" element={<ProjectsPage />} />
+      {/* Cron Jobs route */}
+      <Route path="/cron-jobs" element={<CronJobsPage />} />
       {/* Session route - Agent with session ID for chat persistence */}
       <Route path="/chat/:sessionId" element={<AgentWrapper user={user} />} />
     </Routes>

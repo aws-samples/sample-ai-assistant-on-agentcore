@@ -2760,6 +2760,154 @@ class RequestHandlers:
             logger.error(f"Failed to delete memory record {memory_record_id}: {e}")
             return error_envelope("internal_error", "Failed to delete memory record")
 
+    # =========================================================================
+    # Cron Job Handlers
+    # =========================================================================
+
+    @staticmethod
+    async def handle_create_cron_job(
+        user_id: str, name: str, prompt: str, schedule_expression: str,
+        timezone_str: str = "UTC", skills: Optional[list] = None,
+    ) -> JSONResponse:
+        try:
+            if not name or not name.strip():
+                return error_envelope("validation_error", "name is required")
+            if not prompt or not prompt.strip():
+                return error_envelope("validation_error", "prompt is required")
+            if not schedule_expression:
+                return error_envelope("validation_error", "schedule_expression is required")
+            from cron_service import cron_service
+            job = await cron_service.create_job(
+                user_id=user_id, name=name, prompt=prompt,
+                schedule_expression=schedule_expression,
+                timezone_str=timezone_str, skills=skills,
+            )
+            return JSONResponse({"type": "cron_job_created", "job": job}, headers=CORS_HEADERS)
+        except Exception as e:
+            logger.error(f"Failed to create cron job: {e}")
+            return error_envelope("internal_error", "Failed to create cron job")
+
+    @staticmethod
+    async def handle_list_cron_jobs(user_id: str, limit: int = 50, cursor=None) -> JSONResponse:
+        try:
+            from cron_service import cron_service
+            result = await cron_service.list_jobs(user_id=user_id, limit=limit, cursor=cursor)
+            return JSONResponse({"type": "cron_jobs_list", **result}, headers=CORS_HEADERS)
+        except Exception as e:
+            logger.error(f"Failed to list cron jobs: {e}")
+            return error_envelope("internal_error", "Failed to list cron jobs")
+
+    @staticmethod
+    async def handle_get_cron_job(user_id: str, job_id: str) -> JSONResponse:
+        try:
+            if not job_id:
+                return error_envelope("validation_error", "job_id is required")
+            from cron_service import cron_service
+            job = await cron_service.get_job(user_id, job_id)
+            if not job:
+                return error_envelope("not_found", "Cron job not found")
+            return JSONResponse({"type": "cron_job", "job": job}, headers=CORS_HEADERS)
+        except Exception as e:
+            logger.error(f"Failed to get cron job {job_id}: {e}")
+            return error_envelope("internal_error", "Failed to get cron job")
+
+    @staticmethod
+    async def handle_update_cron_job(
+        user_id: str, job_id: str, name=None, prompt=None,
+        schedule_expression=None, timezone_str=None, skills=None,
+    ) -> JSONResponse:
+        try:
+            if not job_id:
+                return error_envelope("validation_error", "job_id is required")
+            from cron_service import cron_service
+            job = await cron_service.update_job(
+                user_id=user_id, job_id=job_id, name=name, prompt=prompt,
+                schedule_expression=schedule_expression,
+                timezone_str=timezone_str, skills=skills,
+            )
+            if not job:
+                return error_envelope("not_found", "Cron job not found")
+            return JSONResponse({"type": "cron_job_updated", "job": job}, headers=CORS_HEADERS)
+        except Exception as e:
+            logger.error(f"Failed to update cron job {job_id}: {e}")
+            return error_envelope("internal_error", "Failed to update cron job")
+
+    @staticmethod
+    async def handle_delete_cron_job(user_id: str, job_id: str) -> JSONResponse:
+        try:
+            if not job_id:
+                return error_envelope("validation_error", "job_id is required")
+            from cron_service import cron_service
+            deleted = await cron_service.delete_job(user_id, job_id)
+            if not deleted:
+                return error_envelope("not_found", "Cron job not found")
+            return JSONResponse({"type": "cron_job_deleted", "job_id": job_id}, headers=CORS_HEADERS)
+        except Exception as e:
+            logger.error(f"Failed to delete cron job {job_id}: {e}")
+            return error_envelope("internal_error", "Failed to delete cron job")
+
+    @staticmethod
+    async def handle_toggle_cron_job(user_id: str, job_id: str, enabled: bool) -> JSONResponse:
+        try:
+            if not job_id:
+                return error_envelope("validation_error", "job_id is required")
+            from cron_service import cron_service
+            job = await cron_service.toggle_job(user_id, job_id, enabled)
+            if not job:
+                return error_envelope("not_found", "Cron job not found")
+            return JSONResponse({"type": "cron_job_toggled", "job": job}, headers=CORS_HEADERS)
+        except Exception as e:
+            logger.error(f"Failed to toggle cron job {job_id}: {e}")
+            return error_envelope("internal_error", "Failed to toggle cron job")
+
+    @staticmethod
+    async def handle_trigger_cron_job(user_id: str, job_id: str) -> JSONResponse:
+        try:
+            if not job_id:
+                return error_envelope("validation_error", "job_id is required")
+            from cron_service import cron_service
+            triggered = await cron_service.trigger_job(user_id, job_id)
+            if not triggered:
+                return error_envelope("not_found", "Cron job not found")
+            return JSONResponse({"type": "cron_job_triggered", "job_id": job_id}, headers=CORS_HEADERS)
+        except Exception as e:
+            logger.error(f"Failed to trigger cron job {job_id}: {e}")
+            return error_envelope("internal_error", "Failed to trigger cron job")
+
+    @staticmethod
+    async def handle_list_cron_executions(
+        user_id: str, job_id: str, limit: int = 20, cursor=None
+    ) -> JSONResponse:
+        try:
+            if not job_id:
+                return error_envelope("validation_error", "job_id is required")
+            from cron_service import cron_service
+            result = await cron_service.list_executions(
+                job_id=job_id, user_id=user_id, limit=limit, cursor=cursor,
+            )
+            return JSONResponse({"type": "cron_executions_list", **result}, headers=CORS_HEADERS)
+        except Exception as e:
+            logger.error(f"Failed to list executions for job {job_id}: {e}")
+            return error_envelope("internal_error", "Failed to list executions")
+
+    @staticmethod
+    async def handle_get_cron_execution(
+        user_id: str, job_id: str, execution_id: str
+    ) -> JSONResponse:
+        try:
+            if not job_id or not execution_id:
+                return error_envelope("validation_error", "job_id and execution_id are required")
+            from cron_service import cron_service
+            execution = await cron_service.get_execution(job_id, execution_id, user_id)
+            if not execution:
+                return error_envelope("not_found", "Execution not found")
+            return JSONResponse(
+                {"type": "cron_execution", "execution": execution}, headers=CORS_HEADERS
+            )
+        except Exception as e:
+            logger.error(f"Failed to get execution {execution_id}: {e}")
+            return error_envelope("internal_error", "Failed to get execution")
+
 
 # Global handlers instance
 handlers = RequestHandlers()

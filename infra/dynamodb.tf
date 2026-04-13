@@ -17,9 +17,17 @@ resource "aws_dynamodb_table" "tool_config" {
 
   global_secondary_index {
     name            = "persona-index"
-    hash_key        = "persona"
-    range_key       = "user_id"
     projection_type = "ALL"
+
+    key_schema {
+      attribute_name = "persona"
+      key_type       = "HASH"
+    }
+
+    key_schema {
+      attribute_name = "user_id"
+      key_type       = "RANGE"
+    }
   }
 
   point_in_time_recovery {
@@ -62,9 +70,17 @@ resource "aws_dynamodb_table" "skills" {
 
   global_secondary_index {
     name            = "visibility-updated_at-index"
-    hash_key        = "visibility"
-    range_key       = "updated_at"
     projection_type = "ALL"
+
+    key_schema {
+      attribute_name = "visibility"
+      key_type       = "HASH"
+    }
+
+    key_schema {
+      attribute_name = "updated_at"
+      key_type       = "RANGE"
+    }
   }
 
   point_in_time_recovery {
@@ -103,7 +119,8 @@ resource "aws_kms_key" "dynamodb" {
             aws_iam_role.sparky_role.arn,
             aws_iam_role.core_services_role.arn,
             aws_iam_role.kb_cleanup_pipe_role.arn,
-            aws_iam_role.expiry_cleanup_role.arn
+            aws_iam_role.expiry_cleanup_role.arn,
+            aws_iam_role.cron_executor_role.arn
           ]
         }
         Action = [

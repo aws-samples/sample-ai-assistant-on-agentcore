@@ -69,7 +69,7 @@ resource "aws_cloudwatch_log_group" "expiry_cleanup" {
 #======================== IAM Role and Policies ======================
 
 resource "aws_iam_role" "expiry_cleanup_role" {
-  name  = "${local.prefix}-expiry-cleanup-role"
+  name = "${local.prefix}-expiry-cleanup-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -93,8 +93,8 @@ resource "aws_iam_role" "expiry_cleanup_role" {
 
 # Policy for Bedrock KB delete access
 resource "aws_iam_role_policy" "expiry_cleanup_bedrock_policy" {
-  name  = "${local.prefix}-expiry-cleanup-bedrock-policy"
-  role  = aws_iam_role.expiry_cleanup_role.id
+  name = "${local.prefix}-expiry-cleanup-bedrock-policy"
+  role = aws_iam_role.expiry_cleanup_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -114,8 +114,8 @@ resource "aws_iam_role_policy" "expiry_cleanup_bedrock_policy" {
 
 # Policy for CloudWatch Logs
 resource "aws_iam_role_policy" "expiry_cleanup_logs_policy" {
-  name  = "${local.prefix}-expiry-cleanup-logs-policy"
-  role  = aws_iam_role.expiry_cleanup_role.id
+  name = "${local.prefix}-expiry-cleanup-logs-policy"
+  role = aws_iam_role.expiry_cleanup_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -137,8 +137,8 @@ resource "aws_iam_role_policy" "expiry_cleanup_logs_policy" {
 
 # Policy for SQS read access on KB Cleanup Queue
 resource "aws_iam_role_policy" "expiry_cleanup_sqs_policy" {
-  name  = "${local.prefix}-expiry-cleanup-sqs-policy"
-  role  = aws_iam_role.expiry_cleanup_role.id
+  name = "${local.prefix}-expiry-cleanup-sqs-policy"
+  role = aws_iam_role.expiry_cleanup_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -159,8 +159,8 @@ resource "aws_iam_role_policy" "expiry_cleanup_sqs_policy" {
 
 # Policy for AgentCore Memory delete access
 resource "aws_iam_role_policy" "expiry_cleanup_memory_policy" {
-  name  = "${local.prefix}-expiry-cleanup-memory-policy"
-  role  = aws_iam_role.expiry_cleanup_role.id
+  name = "${local.prefix}-expiry-cleanup-memory-policy"
+  role = aws_iam_role.expiry_cleanup_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -182,8 +182,8 @@ resource "aws_iam_role_policy" "expiry_cleanup_memory_policy" {
 
 # Policy for KMS CMK access (decrypt stream/SQS data encrypted with CMK)
 resource "aws_iam_role_policy" "expiry_cleanup_kms_policy" {
-  name  = "${local.prefix}-expiry-cleanup-kms-policy"
-  role  = aws_iam_role.expiry_cleanup_role.id
+  name = "${local.prefix}-expiry-cleanup-kms-policy"
+  role = aws_iam_role.expiry_cleanup_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -207,7 +207,7 @@ resource "aws_iam_role_policy" "expiry_cleanup_kms_policy" {
 # Dedicated SQS queue for KB cleanup events with 5-minute delay
 # to ensure in-flight ingest operations complete before deletion runs
 resource "aws_sqs_queue" "kb_cleanup" {
-  name  = "${local.prefix}-kb-cleanup"
+  name = "${local.prefix}-kb-cleanup"
 
   delay_seconds              = 300
   visibility_timeout_seconds = 300
@@ -223,7 +223,7 @@ resource "aws_sqs_queue" "kb_cleanup" {
 
 # Dead letter queue for failed KB cleanup messages
 resource "aws_sqs_queue" "kb_cleanup_dlq" {
-  name  = "${local.prefix}-kb-cleanup-dlq"
+  name = "${local.prefix}-kb-cleanup-dlq"
 
   message_retention_seconds = 1209600 # 14 days
   sqs_managed_sse_enabled   = true
@@ -249,7 +249,7 @@ resource "aws_sqs_queue_redrive_policy" "kb_cleanup" {
 
 # IAM role for the EventBridge Pipe
 resource "aws_iam_role" "kb_cleanup_pipe_role" {
-  name  = "${local.prefix}-kb-cleanup-pipe-role"
+  name = "${local.prefix}-kb-cleanup-pipe-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -272,8 +272,8 @@ resource "aws_iam_role" "kb_cleanup_pipe_role" {
 
 # Policy for the pipe to read from DynamoDB Stream and send to SQS
 resource "aws_iam_role_policy" "kb_cleanup_pipe_policy" {
-  name  = "${local.prefix}-kb-cleanup-pipe-policy"
-  role  = aws_iam_role.kb_cleanup_pipe_role.id
+  name = "${local.prefix}-kb-cleanup-pipe-policy"
+  role = aws_iam_role.kb_cleanup_pipe_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"

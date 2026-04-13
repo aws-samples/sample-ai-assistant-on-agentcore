@@ -115,9 +115,9 @@ resource "aws_iam_role_policy" "projects_kb_s3_policy" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "S3GetObjectAccess"
-        Effect = "Allow"
-        Action = ["s3:GetObject"]
+        Sid      = "S3GetObjectAccess"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
         Resource = "${aws_s3_bucket.projects_bucket.arn}/*"
       },
       {
@@ -200,8 +200,8 @@ resource "aws_bedrockagent_data_source" "projects_kb_source" {
   data_source_configuration {
     type = "S3"
     s3_configuration {
-      bucket_arn          = aws_s3_bucket.projects_bucket.arn
-      inclusion_prefixes  = ["docs/"]
+      bucket_arn         = aws_s3_bucket.projects_bucket.arn
+      inclusion_prefixes = ["docs/"]
     }
   }
 
@@ -247,9 +247,17 @@ resource "aws_dynamodb_table" "projects" {
 
   global_secondary_index {
     name            = "user_id-created_at-index"
-    hash_key        = "user_id"
-    range_key       = "created_at"
     projection_type = "ALL"
+
+    key_schema {
+      attribute_name = "user_id"
+      key_type       = "HASH"
+    }
+
+    key_schema {
+      attribute_name = "created_at"
+      key_type       = "RANGE"
+    }
   }
 
   point_in_time_recovery {
@@ -329,9 +337,17 @@ resource "aws_dynamodb_table" "project_files" {
 
   global_secondary_index {
     name            = "project_id-filename-index"
-    hash_key        = "project_id"
-    range_key       = "filename"
     projection_type = "ALL"
+
+    key_schema {
+      attribute_name = "project_id"
+      key_type       = "HASH"
+    }
+
+    key_schema {
+      attribute_name = "filename"
+      key_type       = "RANGE"
+    }
   }
 
   point_in_time_recovery {

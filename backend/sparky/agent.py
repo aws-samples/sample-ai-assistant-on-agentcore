@@ -137,6 +137,12 @@ async def invoke(request: InvocationRequest, http_request: Request):
     auth_header = http_request.headers.get("Authorization")
     user_sub = decode_jwt_token(auth_header)
 
+    # For M2M tokens (e.g. cron executor), fall back to user_id from payload
+    if not user_sub:
+        user_sub = request.input.get("user_id")
+    if not user_sub:
+        raise MissingHeader
+
     request_type = request.input.get("type")
 
     # Session ownership validation — skip for ping and create_session

@@ -13,6 +13,7 @@ ROOT="$PWD"
 # auth_layer_path="${build_path}/authorization_deps_code/"
 kb_indexer_build_path="${build_path}/kb_indexer_code/"
 expiry_cleanup_build_path="${build_path}/expiry_cleanup_code/"
+cron_executor_build_path="${build_path}/cron_executor_code/"
 
 # Clean up existing build directories
 # rm -rf "$authorizer_build_path"
@@ -20,6 +21,7 @@ expiry_cleanup_build_path="${build_path}/expiry_cleanup_code/"
 # rm -rf "$auth_layer_path"
 rm -rf "$kb_indexer_build_path"
 rm -rf "$expiry_cleanup_build_path"
+rm -rf "$cron_executor_build_path"
 
 # Create new build directories
 # mkdir -p "$authorizer_build_path"
@@ -27,6 +29,7 @@ rm -rf "$expiry_cleanup_build_path"
 # mkdir -p "$auth_layer_path"
 mkdir -p "$kb_indexer_build_path"
 mkdir -p "$expiry_cleanup_build_path"
+mkdir -p "$cron_executor_build_path"
 
 # echo "Building lambda layers"
 # cd "$ROOT"
@@ -59,3 +62,7 @@ cp -r ../backend/kb_indexer/*.py "$kb_indexer_build_path/"
 cd "$ROOT"
 echo "Building expiry_cleanup lambda"
 cp -r ../backend/expiry_cleanup/*.py "$expiry_cleanup_build_path/"
+
+cd "$ROOT"
+echo "Building cron_executor lambda"
+cp -r ../backend/cron_executor/*.py "$cron_executor_build_path/"

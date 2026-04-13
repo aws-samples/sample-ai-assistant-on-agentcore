@@ -102,7 +102,7 @@ variable "sparky_models" {
         description    = "Fastest"
         max_tokens     = 64000
         reasoning_type = "budget"
-        budget_mapping = { "1" = 16000, "2" = 30000, "3" = 42000, "4" = 63999  }
+        budget_mapping = { "1" = 16000, "2" = 30000, "3" = 42000, "4" = 63999 }
         effort_mapping = {}
         beta_flags     = ["interleaved-thinking-2025-05-14", "fine-grained-tool-streaming-2025-05-14"]
       }
