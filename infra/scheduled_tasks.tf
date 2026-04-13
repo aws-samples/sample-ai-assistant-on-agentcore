@@ -1,14 +1,14 @@
-# Cron Jobs Infrastructure
+# Scheduled Tasks Infrastructure
 # DynamoDB tables, SQS queue, Lambda executor, IAM roles,
 # and EventBridge Scheduler permissions for scheduled job execution.
 
 #======================== DynamoDB Tables ======================
 
-resource "aws_dynamodb_table" "cron_jobs" {
+resource "aws_dynamodb_table" "scheduled_tasks" {
   billing_mode                = "PAY_PER_REQUEST"
   hash_key                    = "user_id"
   range_key                   = "job_id"
-  name                        = "${local.prefix}-cron-jobs"
+  name                        = "${local.prefix}-scheduled-tasks"
   deletion_protection_enabled = var.deletion_protection_enabled
 
   attribute {
@@ -51,11 +51,11 @@ resource "aws_dynamodb_table" "cron_jobs" {
   }
 }
 
-resource "aws_dynamodb_table" "cron_job_executions" {
+resource "aws_dynamodb_table" "scheduled_task_executions" {
   billing_mode                = "PAY_PER_REQUEST"
   hash_key                    = "job_id"
   range_key                   = "execution_id"
-  name                        = "${local.prefix}-cron-job-executions"
+  name                        = "${local.prefix}-scheduled-task-executions"
   deletion_protection_enabled = var.deletion_protection_enabled
 
   attribute {
@@ -106,8 +106,8 @@ resource "aws_dynamodb_table" "cron_job_executions" {
 
 #======================== SQS Queue ======================
 
-resource "aws_sqs_queue" "cron_execution" {
-  name = "${local.prefix}-cron-execution"
+resource "aws_sqs_queue" "task_execution" {
+  name = "${local.prefix}-task-execution"
 
   visibility_timeout_seconds = 960 # > Lambda 900s timeout
   message_retention_seconds  = 345600
@@ -115,28 +115,28 @@ resource "aws_sqs_queue" "cron_execution" {
   receive_wait_time_seconds  = 10
 
   tags = {
-    Name        = "${local.prefix}-cron-execution"
+    Name        = "${local.prefix}-task-execution"
     Environment = var.env
   }
 }
 
-resource "aws_sqs_queue" "cron_execution_dlq" {
-  name = "${local.prefix}-cron-execution-dlq"
+resource "aws_sqs_queue" "task_execution_dlq" {
+  name = "${local.prefix}-task-execution-dlq"
 
   message_retention_seconds = 1209600 # 14 days
   sqs_managed_sse_enabled   = true
 
   tags = {
-    Name        = "${local.prefix}-cron-execution-dlq"
+    Name        = "${local.prefix}-task-execution-dlq"
     Environment = var.env
   }
 }
 
-resource "aws_sqs_queue_redrive_policy" "cron_execution" {
-  queue_url = aws_sqs_queue.cron_execution.id
+resource "aws_sqs_queue_redrive_policy" "task_execution" {
+  queue_url = aws_sqs_queue.task_execution.id
 
   redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.cron_execution_dlq.arn
+    deadLetterTargetArn = aws_sqs_queue.task_execution_dlq.arn
     maxReceiveCount     = 3
   })
 }
@@ -144,19 +144,19 @@ resource "aws_sqs_queue_redrive_policy" "cron_execution" {
 
 #======================== Lambda Deployment Package ======================
 
-data "archive_file" "cron_executor" {
+data "archive_file" "task_executor" {
   type        = "zip"
-  source_dir  = "${path.module}/build/cron_executor_code"
-  output_path = "${path.module}/build/cron_executor.zip"
+  source_dir  = "${path.module}/build/task_executor_code"
+  output_path = "${path.module}/build/task_executor.zip"
 
   depends_on = [null_resource.build]
 }
 
 
-#======================== Cron Executor IAM Role ======================
+#======================== Task Executor IAM Role ======================
 
-resource "aws_iam_role" "cron_executor_role" {
-  name = "${local.prefix}-cron-executor-role"
+resource "aws_iam_role" "task_executor_role" {
+  name = "${local.prefix}-task-executor-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -172,15 +172,15 @@ resource "aws_iam_role" "cron_executor_role" {
   })
 
   tags = {
-    Name        = "${local.prefix}-cron-executor-role"
+    Name        = "${local.prefix}-task-executor-role"
     Environment = var.env
   }
 }
 
-# DynamoDB read/write for cron tables
-resource "aws_iam_role_policy" "cron_executor_dynamodb_policy" {
-  name = "${local.prefix}-cron-executor-dynamodb-policy"
-  role = aws_iam_role.cron_executor_role.id
+# DynamoDB read/write for task tables
+resource "aws_iam_role_policy" "task_executor_dynamodb_policy" {
+  name = "${local.prefix}-task-executor-dynamodb-policy"
+  role = aws_iam_role.task_executor_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -195,10 +195,10 @@ resource "aws_iam_role_policy" "cron_executor_dynamodb_policy" {
           "dynamodb:Query"
         ]
         Resource = [
-          aws_dynamodb_table.cron_jobs.arn,
-          "${aws_dynamodb_table.cron_jobs.arn}/index/*",
-          aws_dynamodb_table.cron_job_executions.arn,
-          "${aws_dynamodb_table.cron_job_executions.arn}/index/*"
+          aws_dynamodb_table.scheduled_tasks.arn,
+          "${aws_dynamodb_table.scheduled_tasks.arn}/index/*",
+          aws_dynamodb_table.scheduled_task_executions.arn,
+          "${aws_dynamodb_table.scheduled_task_executions.arn}/index/*"
         ]
       }
     ]
@@ -206,9 +206,9 @@ resource "aws_iam_role_policy" "cron_executor_dynamodb_policy" {
 }
 
 # S3 write for execution artifacts
-resource "aws_iam_role_policy" "cron_executor_s3_policy" {
-  name = "${local.prefix}-cron-executor-s3-policy"
-  role = aws_iam_role.cron_executor_role.id
+resource "aws_iam_role_policy" "task_executor_s3_policy" {
+  name = "${local.prefix}-task-executor-s3-policy"
+  role = aws_iam_role.task_executor_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -227,9 +227,9 @@ resource "aws_iam_role_policy" "cron_executor_s3_policy" {
 }
 
 # AgentCore invoke for running the agent
-resource "aws_iam_role_policy" "cron_executor_agentcore_policy" {
-  name = "${local.prefix}-cron-executor-agentcore-policy"
-  role = aws_iam_role.cron_executor_role.id
+resource "aws_iam_role_policy" "task_executor_agentcore_policy" {
+  name = "${local.prefix}-task-executor-agentcore-policy"
+  role = aws_iam_role.task_executor_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -250,9 +250,9 @@ resource "aws_iam_role_policy" "cron_executor_agentcore_policy" {
 }
 
 # SQS receive/delete
-resource "aws_iam_role_policy" "cron_executor_sqs_policy" {
-  name = "${local.prefix}-cron-executor-sqs-policy"
-  role = aws_iam_role.cron_executor_role.id
+resource "aws_iam_role_policy" "task_executor_sqs_policy" {
+  name = "${local.prefix}-task-executor-sqs-policy"
+  role = aws_iam_role.task_executor_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -265,16 +265,16 @@ resource "aws_iam_role_policy" "cron_executor_sqs_policy" {
           "sqs:DeleteMessage",
           "sqs:GetQueueAttributes"
         ]
-        Resource = aws_sqs_queue.cron_execution.arn
+        Resource = aws_sqs_queue.task_execution.arn
       }
     ]
   })
 }
 
 # CloudWatch Logs
-resource "aws_iam_role_policy" "cron_executor_logs_policy" {
-  name = "${local.prefix}-cron-executor-logs-policy"
-  role = aws_iam_role.cron_executor_role.id
+resource "aws_iam_role_policy" "task_executor_logs_policy" {
+  name = "${local.prefix}-task-executor-logs-policy"
+  role = aws_iam_role.task_executor_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -287,16 +287,16 @@ resource "aws_iam_role_policy" "cron_executor_logs_policy" {
           "logs:CreateLogStream",
           "logs:PutLogEvents"
         ]
-        Resource = "arn:aws:logs:${var.region}:${data.aws_caller_identity.caller_identity.account_id}:log-group:/aws/lambda/${local.prefix}-cron-executor:*"
+        Resource = "arn:aws:logs:${var.region}:${data.aws_caller_identity.caller_identity.account_id}:log-group:/aws/lambda/${local.prefix}-task-executor:*"
       }
     ]
   })
 }
 
 # KMS access for encrypted DynamoDB tables
-resource "aws_iam_role_policy" "cron_executor_kms_policy" {
-  name = "${local.prefix}-cron-executor-kms-policy"
-  role = aws_iam_role.cron_executor_role.id
+resource "aws_iam_role_policy" "task_executor_kms_policy" {
+  name = "${local.prefix}-task-executor-kms-policy"
+  role = aws_iam_role.task_executor_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -319,13 +319,13 @@ resource "aws_iam_role_policy" "cron_executor_kms_policy" {
 
 #======================== Lambda Function ======================
 
-resource "aws_lambda_function" "cron_executor" {
-  function_name = "${local.prefix}-cron-executor"
-  description   = "Executes scheduled cron jobs by invoking the Sparky agent runtime"
-  role          = aws_iam_role.cron_executor_role.arn
+resource "aws_lambda_function" "task_executor" {
+  function_name = "${local.prefix}-task-executor"
+  description   = "Executes scheduled tasks by invoking the Sparky agent runtime"
+  role          = aws_iam_role.task_executor_role.arn
 
-  filename         = data.archive_file.cron_executor.output_path
-  source_code_hash = data.archive_file.cron_executor.output_base64sha256
+  filename         = data.archive_file.task_executor.output_path
+  source_code_hash = data.archive_file.task_executor.output_base64sha256
   handler          = "handler.handler"
   runtime          = "python3.12"
   architectures    = ["x86_64"]
@@ -335,48 +335,48 @@ resource "aws_lambda_function" "cron_executor" {
 
   environment {
     variables = {
-      CRON_JOBS_TABLE       = aws_dynamodb_table.cron_jobs.id
-      CRON_EXECUTIONS_TABLE = aws_dynamodb_table.cron_job_executions.id
+      TASK_JOBS_TABLE       = aws_dynamodb_table.scheduled_tasks.id
+      TASK_EXECUTIONS_TABLE = aws_dynamodb_table.scheduled_task_executions.id
       SPARKY_RUNTIME_ARN    = aws_bedrockagentcore_agent_runtime.sparky.agent_runtime_arn
       S3_BUCKET             = aws_s3_bucket.artifact_bucket.id
       REGION                = var.region
       LOG_LEVEL             = "INFO"
       COGNITO_TOKEN_URL     = "https://${aws_cognito_user_pool_domain.domain.domain}.auth.${var.region}.amazoncognito.com/oauth2/token"
-      COGNITO_CLIENT_ID     = aws_cognito_user_pool_client.cron_executor.id
-      COGNITO_CLIENT_SECRET = aws_cognito_user_pool_client.cron_executor.client_secret
+      COGNITO_CLIENT_ID     = aws_cognito_user_pool_client.task_executor.id
+      COGNITO_CLIENT_SECRET = aws_cognito_user_pool_client.task_executor.client_secret
       COGNITO_SCOPE         = "sparky-api/invoke"
     }
   }
 
   depends_on = [
-    aws_iam_role_policy.cron_executor_logs_policy,
-    aws_iam_role_policy.cron_executor_dynamodb_policy,
-    aws_iam_role_policy.cron_executor_sqs_policy,
-    aws_iam_role_policy.cron_executor_agentcore_policy,
-    aws_iam_role_policy.cron_executor_kms_policy,
+    aws_iam_role_policy.task_executor_logs_policy,
+    aws_iam_role_policy.task_executor_dynamodb_policy,
+    aws_iam_role_policy.task_executor_sqs_policy,
+    aws_iam_role_policy.task_executor_agentcore_policy,
+    aws_iam_role_policy.task_executor_kms_policy,
   ]
 
   tags = {
-    Name        = "${local.prefix}-cron-executor"
+    Name        = "${local.prefix}-task-executor"
     Environment = var.env
   }
 }
 
-resource "aws_lambda_event_source_mapping" "cron_executor_sqs" {
-  event_source_arn = aws_sqs_queue.cron_execution.arn
-  function_name    = aws_lambda_function.cron_executor.arn
+resource "aws_lambda_event_source_mapping" "task_executor_sqs" {
+  event_source_arn = aws_sqs_queue.task_execution.arn
+  function_name    = aws_lambda_function.task_executor.arn
   enabled          = true
   batch_size       = 1
 
   function_response_types = ["ReportBatchItemFailures"]
 }
 
-resource "aws_cloudwatch_log_group" "cron_executor" {
-  name              = "/aws/lambda/${local.prefix}-cron-executor"
+resource "aws_cloudwatch_log_group" "task_executor" {
+  name              = "/aws/lambda/${local.prefix}-task-executor"
   retention_in_days = 14
 
   tags = {
-    Name        = "${local.prefix}-cron-executor-logs"
+    Name        = "${local.prefix}-task-executor-logs"
     Environment = var.env
   }
 }
@@ -384,8 +384,8 @@ resource "aws_cloudwatch_log_group" "cron_executor" {
 
 #======================== EventBridge Scheduler IAM Role ======================
 
-resource "aws_iam_role" "cron_scheduler_role" {
-  name = "${local.prefix}-cron-scheduler-role"
+resource "aws_iam_role" "task_scheduler_role" {
+  name = "${local.prefix}-task-scheduler-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -401,14 +401,14 @@ resource "aws_iam_role" "cron_scheduler_role" {
   })
 
   tags = {
-    Name        = "${local.prefix}-cron-scheduler-role"
+    Name        = "${local.prefix}-task-scheduler-role"
     Environment = var.env
   }
 }
 
-resource "aws_iam_role_policy" "cron_scheduler_sqs_policy" {
-  name = "${local.prefix}-cron-scheduler-sqs-policy"
-  role = aws_iam_role.cron_scheduler_role.id
+resource "aws_iam_role_policy" "task_scheduler_sqs_policy" {
+  name = "${local.prefix}-task-scheduler-sqs-policy"
+  role = aws_iam_role.task_scheduler_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -419,7 +419,7 @@ resource "aws_iam_role_policy" "cron_scheduler_sqs_policy" {
         Action = [
           "sqs:SendMessage"
         ]
-        Resource = aws_sqs_queue.cron_execution.arn
+        Resource = aws_sqs_queue.task_execution.arn
       }
     ]
   })
@@ -446,7 +446,7 @@ resource "aws_iam_role_policy" "core_services_scheduler_policy" {
           "scheduler:DeleteSchedule",
           "scheduler:ListSchedules"
         ]
-        Resource = "arn:aws:scheduler:${var.region}:${data.aws_caller_identity.caller_identity.account_id}:schedule/${local.prefix}-cron-jobs/${local.prefix}-cron-*"
+        Resource = "arn:aws:scheduler:${var.region}:${data.aws_caller_identity.caller_identity.account_id}:schedule/${local.prefix}-scheduled-tasks/${local.prefix}-task-*"
       },
       {
         Sid    = "ScheduleGroupManage"
@@ -455,21 +455,21 @@ resource "aws_iam_role_policy" "core_services_scheduler_policy" {
           "scheduler:GetScheduleGroup",
           "scheduler:CreateScheduleGroup"
         ]
-        Resource = "arn:aws:scheduler:${var.region}:${data.aws_caller_identity.caller_identity.account_id}:schedule-group/${local.prefix}-cron-jobs"
+        Resource = "arn:aws:scheduler:${var.region}:${data.aws_caller_identity.caller_identity.account_id}:schedule-group/${local.prefix}-scheduled-tasks"
       },
       {
-        Sid    = "CronQueueAttributes"
+        Sid    = "TaskQueueAttributes"
         Effect = "Allow"
         Action = [
           "sqs:GetQueueAttributes"
         ]
-        Resource = aws_sqs_queue.cron_execution.arn
+        Resource = aws_sqs_queue.task_execution.arn
       },
       {
         Sid      = "PassSchedulerRole"
         Effect   = "Allow"
         Action   = "iam:PassRole"
-        Resource = aws_iam_role.cron_scheduler_role.arn
+        Resource = aws_iam_role.task_scheduler_role.arn
         Condition = {
           StringEquals = {
             "iam:PassedToService" = "scheduler.amazonaws.com"
@@ -480,16 +480,16 @@ resource "aws_iam_role_policy" "core_services_scheduler_policy" {
   })
 }
 
-# Allow core_services to read/write cron DynamoDB tables
-resource "aws_iam_role_policy" "core_services_cron_dynamodb_policy" {
-  name = "${local.prefix}-core-services-cron-dynamodb-policy"
+# Allow core_services to read/write task DynamoDB tables
+resource "aws_iam_role_policy" "core_services_task_dynamodb_policy" {
+  name = "${local.prefix}-core-services-task-dynamodb-policy"
   role = aws_iam_role.core_services_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "CronDynamoDBAccess"
+        Sid    = "TaskDynamoDBAccess"
         Effect = "Allow"
         Action = [
           "dynamodb:GetItem",
@@ -500,10 +500,10 @@ resource "aws_iam_role_policy" "core_services_cron_dynamodb_policy" {
           "dynamodb:Scan"
         ]
         Resource = [
-          aws_dynamodb_table.cron_jobs.arn,
-          "${aws_dynamodb_table.cron_jobs.arn}/index/*",
-          aws_dynamodb_table.cron_job_executions.arn,
-          "${aws_dynamodb_table.cron_job_executions.arn}/index/*"
+          aws_dynamodb_table.scheduled_tasks.arn,
+          "${aws_dynamodb_table.scheduled_tasks.arn}/index/*",
+          aws_dynamodb_table.scheduled_task_executions.arn,
+          "${aws_dynamodb_table.scheduled_task_executions.arn}/index/*"
         ]
       }
     ]

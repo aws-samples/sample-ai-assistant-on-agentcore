@@ -25,21 +25,21 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  listCronJobs,
-  createCronJob,
-  updateCronJob,
-  deleteCronJob,
-  toggleCronJob,
-  triggerCronJob,
-  getCronJob,
-  listCronExecutions,
-  getCronExecution,
-} from "@/services/cronJobsService";
-import "./CronJobsPage.css";
+  listScheduledTasks,
+  createScheduledTask,
+  updateScheduledTask,
+  deleteScheduledTask,
+  toggleScheduledTask,
+  triggerScheduledTask,
+  getScheduledTask,
+  listTaskExecutions,
+  getTaskExecution,
+} from "@/services/scheduledTasksService";
+import "./ScheduledTasksPage.css";
 import TextContent from "@/components/Agent/TextContent";
 
 function StatusBadge({ status }) {
-  return <span className={`cron-status ${status}`}>{status}</span>;
+  return <span className={`st-status ${status}`}>{status}</span>;
 }
 
 function ExecutionOutput({ execution, onClose }) {
@@ -47,22 +47,22 @@ function ExecutionOutput({ execution, onClose }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getCronExecution(execution.job_id, execution.execution_id)
+    getTaskExecution(execution.job_id, execution.execution_id)
       .then((data) => setOutput(data.execution?.output || "No output"))
       .catch(() => setOutput("Failed to load output"))
       .finally(() => setLoading(false));
   }, [execution]);
 
   return (
-    <div className="cron-output-overlay" onClick={onClose}>
-      <div className="cron-output-panel" onClick={(e) => e.stopPropagation()}>
-        <div className="cron-output-header">
+    <div className="st-output-overlay" onClick={onClose}>
+      <div className="st-output-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="st-output-header">
           <span>Execution Output</span>
           <Button variant="ghost" size="icon" onClick={onClose}>
             <X size={16} />
           </Button>
         </div>
-        <div className="cron-output-body">
+        <div className="st-output-body">
           {loading ? <Loader2 className="animate-spin" size={20} /> : <TextContent content={output || ""} />}
         </div>
       </div>
@@ -70,7 +70,7 @@ function ExecutionOutput({ execution, onClose }) {
   );
 }
 
-function CronJobDetail({ jobId, onBack }) {
+function TaskDetail({ jobId, onBack }) {
   const [job, setJob] = useState(null);
   const [executions, setExecutions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -78,7 +78,7 @@ function CronJobDetail({ jobId, onBack }) {
   const [triggering, setTriggering] = useState(false);
 
   useEffect(() => {
-    Promise.all([getCronJob(jobId), listCronExecutions(jobId)])
+    Promise.all([getScheduledTask(jobId), listTaskExecutions(jobId)])
       .then(([jobData, execData]) => {
         setJob(jobData.job);
         setExecutions(execData.executions || []);
@@ -90,7 +90,7 @@ function CronJobDetail({ jobId, onBack }) {
   const handleTrigger = async () => {
     setTriggering(true);
     try {
-      await triggerCronJob(jobId);
+      await triggerScheduledTask(jobId);
       toast.success("Job triggered — execution will appear shortly");
     } catch {
       toast.error("Failed to trigger job");
@@ -101,8 +101,8 @@ function CronJobDetail({ jobId, onBack }) {
 
   if (loading) {
     return (
-      <div className="cron-page">
-        <div className="cron-empty" style={{ flex: 1 }}>
+      <div className="st-page">
+        <div className="st-empty" style={{ flex: 1 }}>
           <Loader2 className="animate-spin" size={24} />
         </div>
       </div>
@@ -112,17 +112,17 @@ function CronJobDetail({ jobId, onBack }) {
   if (!job) return null;
 
   return (
-    <div className="cron-page">
-      <div className="cron-header">
-        <div className="cron-header-left">
-          <button className="cron-detail-back" onClick={onBack}>
-            <ChevronLeft size={16} /> Back to Cron Jobs
+    <div className="st-page">
+      <div className="st-header">
+        <div className="st-header-left">
+          <button className="st-detail-back" onClick={onBack}>
+            <ChevronLeft size={16} /> Back to Scheduled Tasks
           </button>
         </div>
       </div>
-      <div className="cron-scroll">
-        <div className="cron-content">
-          <div className="cron-detail-title-row">
+      <div className="st-scroll">
+        <div className="st-content">
+          <div className="st-detail-title-row">
             <h1>{job.name}</h1>
             <Button size="sm" variant="outline" onClick={handleTrigger} disabled={triggering}>
               {triggering ? <Loader2 className="animate-spin mr-1" size={14} /> : <Play size={14} className="mr-1" />}
@@ -130,7 +130,7 @@ function CronJobDetail({ jobId, onBack }) {
             </Button>
           </div>
 
-          <dl className="cron-detail-info">
+          <dl className="st-detail-info">
             <dt>Schedule</dt>
             <dd>{job.schedule_expression}</dd>
             <dt>Timezone</dt>
@@ -143,16 +143,16 @@ function CronJobDetail({ jobId, onBack }) {
             <dd>{new Date(job.created_at).toLocaleString()}</dd>
           </dl>
 
-          <h2 className="cron-section-title">Prompt</h2>
-          <div className="cron-detail-prompt">{job.prompt}</div>
+          <h2 className="st-section-title">Prompt</h2>
+          <div className="st-detail-prompt">{job.prompt}</div>
 
-          <h2 className="cron-section-title">Execution History</h2>
+          <h2 className="st-section-title">Execution History</h2>
           {executions.length === 0 ? (
             <p style={{ color: "var(--color-muted-foreground)", fontSize: "0.875rem" }}>
               No executions yet.
             </p>
           ) : (
-            <table className="cron-exec-table">
+            <table className="st-exec-table">
               <thead>
                 <tr>
                   <th>Time</th>
@@ -197,7 +197,7 @@ function CronJobDetail({ jobId, onBack }) {
   );
 }
 
-function CronJobForm({ open, onClose, onSave, editJob }) {
+function TaskForm({ open, onClose, onSave, editJob }) {
   const [name, setName] = useState("");
   const [prompt, setPrompt] = useState("");
   const [schedule, setSchedule] = useState("");
@@ -226,21 +226,21 @@ function CronJobForm({ open, onClose, onSave, editJob }) {
     setSaving(true);
     try {
       if (editJob) {
-        await updateCronJob(editJob.job_id, {
+        await updateScheduledTask(editJob.job_id, {
           name,
           prompt,
           schedule_expression: schedule,
           timezone,
         });
-        toast.success("Cron job updated");
+        toast.success("Scheduled task updated");
       } else {
-        await createCronJob({ name, prompt, schedule_expression: schedule, timezone });
-        toast.success("Cron job created");
+        await createScheduledTask({ name, prompt, schedule_expression: schedule, timezone });
+        toast.success("Scheduled task created");
       }
       onSave();
       onClose();
     } catch (e) {
-      toast.error(e.message || "Failed to save cron job");
+      toast.error(e.message || "Failed to save scheduled task");
     } finally {
       setSaving(false);
     }
@@ -250,7 +250,7 @@ function CronJobForm({ open, onClose, onSave, editJob }) {
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{editJob ? "Edit Cron Job" : "New Cron Job"}</DialogTitle>
+          <DialogTitle>{editJob ? "Edit Scheduled Task" : "New Scheduled Task"}</DialogTitle>
           <DialogDescription>
             Schedule a prompt to run automatically on a recurring basis.
           </DialogDescription>
@@ -299,7 +299,7 @@ function CronJobForm({ open, onClose, onSave, editJob }) {
   );
 }
 
-export default function CronJobsPage() {
+export default function ScheduledTasksPage() {
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -308,10 +308,10 @@ export default function CronJobsPage() {
 
   const loadJobs = useCallback(async () => {
     try {
-      const data = await listCronJobs();
+      const data = await listScheduledTasks();
       setJobs(data.jobs || []);
     } catch {
-      toast.error("Failed to load cron jobs");
+      toast.error("Failed to load scheduled tasks");
     } finally {
       setLoading(false);
     }
@@ -322,36 +322,36 @@ export default function CronJobsPage() {
   }, [loadJobs]);
 
   const handleDelete = async (jobId) => {
-    if (!confirm("Delete this cron job?")) return;
+    if (!confirm("Delete this scheduled task?")) return;
     try {
-      await deleteCronJob(jobId);
-      toast.success("Cron job deleted");
+      await deleteScheduledTask(jobId);
+      toast.success("Scheduled task deleted");
       loadJobs();
     } catch {
-      toast.error("Failed to delete cron job");
+      toast.error("Failed to delete scheduled task");
     }
   };
 
   const handleToggle = async (job) => {
     try {
-      await toggleCronJob(job.job_id, job.status !== "enabled");
+      await toggleScheduledTask(job.job_id, job.status !== "enabled");
       loadJobs();
     } catch {
-      toast.error("Failed to toggle cron job");
+      toast.error("Failed to toggle scheduled task");
     }
   };
 
   if (detailJobId) {
-    return <CronJobDetail jobId={detailJobId} onBack={() => setDetailJobId(null)} />;
+    return <TaskDetail jobId={detailJobId} onBack={() => setDetailJobId(null)} />;
   }
 
   return (
-    <div className="cron-page">
-      <div className="cron-header">
-        <div className="cron-header-left">
-          <div className="cron-title">
+    <div className="st-page">
+      <div className="st-header">
+        <div className="st-header-left">
+          <div className="st-title">
             <Clock size={18} />
-            <h1>Cron Jobs</h1>
+            <h1>Scheduled Tasks</h1>
           </div>
         </div>
         <Button
@@ -361,22 +361,22 @@ export default function CronJobsPage() {
             setShowForm(true);
           }}
         >
-          <Plus size={14} className="mr-1" /> New Job
+          <Plus size={14} className="mr-1" /> New Task
         </Button>
       </div>
 
-      <div className="cron-scroll">
-        <div className="cron-content">
+      <div className="st-scroll">
+        <div className="st-content">
           {loading ? (
-            <div className="cron-empty">
+            <div className="st-empty">
               <Loader2 className="animate-spin" size={24} />
             </div>
           ) : jobs.length === 0 ? (
-            <div className="cron-empty">
-              <p>No cron jobs yet. Create one to schedule recurring prompts.</p>
+            <div className="st-empty">
+              <p>No scheduled tasks yet. Create one to schedule recurring prompts.</p>
             </div>
           ) : (
-            <table className="cron-table">
+            <table className="st-table">
               <thead>
                 <tr>
                   <th>Name</th>
@@ -391,7 +391,7 @@ export default function CronJobsPage() {
                   .filter((j) => j.status !== "deleted")
                   .map((job) => (
                     <tr key={job.job_id}>
-                      <td className="cron-name" onClick={() => setDetailJobId(job.job_id)}>
+                      <td className="st-name" onClick={() => setDetailJobId(job.job_id)}>
                         {job.name}
                       </td>
                       <td style={{ fontSize: "0.8125rem", color: "var(--color-muted-foreground)" }}>
@@ -404,7 +404,7 @@ export default function CronJobsPage() {
                         {new Date(job.updated_at).toLocaleDateString()}
                       </td>
                       <td>
-                        <div className="cron-actions">
+                        <div className="st-actions">
                           <Button
                             variant="ghost"
                             size="icon"
@@ -442,7 +442,7 @@ export default function CronJobsPage() {
         </div>
       </div>
 
-      <CronJobForm
+      <TaskForm
         open={showForm}
         onClose={() => setShowForm(false)}
         onSave={loadJobs}

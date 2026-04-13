@@ -76,16 +76,16 @@ CORE_SERVICES_REQUEST_TYPES = {
     # Project memory
     "list_project_memories",
     "delete_project_memory",
-    # Cron jobs management
-    "create_cron_job",
-    "list_cron_jobs",
-    "get_cron_job",
-    "update_cron_job",
-    "delete_cron_job",
-    "toggle_cron_job",
-    "trigger_cron_job",
-    "list_cron_executions",
-    "get_cron_execution",
+    # Scheduled tasks management
+    "create_scheduled_task",
+    "list_scheduled_tasks",
+    "get_scheduled_task",
+    "update_scheduled_task",
+    "delete_scheduled_task",
+    "toggle_scheduled_task",
+    "trigger_scheduled_task",
+    "list_task_executions",
+    "get_task_execution",
 }
 
 
@@ -475,9 +475,9 @@ async def invoke(request: InvocationRequest, http_request: Request):
             memory_record_id=request.input.get("memory_record_id", ""),
         )
 
-    # Cron Jobs handlers
-    if request_type == "create_cron_job":
-        return await handlers.handle_create_cron_job(
+    # Scheduled Tasks handlers
+    if request_type == "create_scheduled_task":
+        return await handlers.handle_create_scheduled_task(
             user_id=user_id,
             name=request.input.get("name", ""),
             prompt=request.input.get("prompt", ""),
@@ -486,21 +486,21 @@ async def invoke(request: InvocationRequest, http_request: Request):
             skills=request.input.get("skills"),
         )
 
-    if request_type == "list_cron_jobs":
-        return await handlers.handle_list_cron_jobs(
+    if request_type == "list_scheduled_tasks":
+        return await handlers.handle_list_scheduled_tasks(
             user_id=user_id,
             limit=request.input.get("limit", 50),
             cursor=request.input.get("cursor"),
         )
 
-    if request_type == "get_cron_job":
-        return await handlers.handle_get_cron_job(
+    if request_type == "get_scheduled_task":
+        return await handlers.handle_get_scheduled_task(
             user_id=user_id,
             job_id=request.input.get("job_id", ""),
         )
 
-    if request_type == "update_cron_job":
-        return await handlers.handle_update_cron_job(
+    if request_type == "update_scheduled_task":
+        return await handlers.handle_update_scheduled_task(
             user_id=user_id,
             job_id=request.input.get("job_id", ""),
             name=request.input.get("name"),
@@ -510,35 +510,35 @@ async def invoke(request: InvocationRequest, http_request: Request):
             skills=request.input.get("skills"),
         )
 
-    if request_type == "delete_cron_job":
-        return await handlers.handle_delete_cron_job(
+    if request_type == "delete_scheduled_task":
+        return await handlers.handle_delete_scheduled_task(
             user_id=user_id,
             job_id=request.input.get("job_id", ""),
         )
 
-    if request_type == "toggle_cron_job":
-        return await handlers.handle_toggle_cron_job(
+    if request_type == "toggle_scheduled_task":
+        return await handlers.handle_toggle_scheduled_task(
             user_id=user_id,
             job_id=request.input.get("job_id", ""),
             enabled=request.input.get("enabled", True),
         )
 
-    if request_type == "trigger_cron_job":
-        return await handlers.handle_trigger_cron_job(
+    if request_type == "trigger_scheduled_task":
+        return await handlers.handle_trigger_scheduled_task(
             user_id=user_id,
             job_id=request.input.get("job_id", ""),
         )
 
-    if request_type == "list_cron_executions":
-        return await handlers.handle_list_cron_executions(
+    if request_type == "list_task_executions":
+        return await handlers.handle_list_task_executions(
             user_id=user_id,
             job_id=request.input.get("job_id", ""),
             limit=request.input.get("limit", 20),
             cursor=request.input.get("cursor"),
         )
 
-    if request_type == "get_cron_execution":
-        return await handlers.handle_get_cron_execution(
+    if request_type == "get_task_execution":
+        return await handlers.handle_get_task_execution(
             user_id=user_id,
             job_id=request.input.get("job_id", ""),
             execution_id=request.input.get("execution_id", ""),

@@ -120,7 +120,7 @@ resource "aws_kms_key" "dynamodb" {
             aws_iam_role.core_services_role.arn,
             aws_iam_role.kb_cleanup_pipe_role.arn,
             aws_iam_role.expiry_cleanup_role.arn,
-            aws_iam_role.cron_executor_role.arn
+            aws_iam_role.task_executor_role.arn
           ]
         }
         Action = [

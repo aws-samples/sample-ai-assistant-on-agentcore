@@ -7,14 +7,14 @@ Full-stack AI assistant: React frontend on AWS Amplify, Python backend on Amazon
 ```
 backend/
   sparky/              # Main agent runtime — LangGraph + FastAPI on AgentCore
-  core_services/       # Sync API runtime — FastAPI on AgentCore (CRUD for history, tools, skills, search, cron jobs)
+  core_services/       # Sync API runtime — FastAPI on AgentCore (CRUD for history, tools, skills, search, scheduled tasks)
   kb_indexer/          # Lambda: SQS → Bedrock Knowledge Base ingestion
   expiry_cleanup/      # Lambda: SQS → KB doc + AgentCore Memory cleanup
-  cron_executor/       # Lambda: SQS → Scheduled cron job execution via AgentCore
+  task_executor/       # Lambda: SQS → Scheduled task execution via AgentCore
 src/                   # React frontend (Vite + Tailwind + shadcn/ui)
   components/Agent/    # Chat UI: AgentInterface, ChatInput, CanvasPanel, BrowserSessionIndicator
-  pages/               # Agent, ToolConfig, Skills, Projects, CronJobs, Landingpage
-  services/            # API clients (auth, skills, toolConfig, projects, cronJobs, chartExport)
+  pages/               # Agent, ToolConfig, Skills, Projects, ScheduledTasks, Landingpage
+  services/            # API clients (auth, skills, toolConfig, projects, scheduledTasks, chartExport)
 infra/                 # Terraform (AWS provider >= 6.26.0, Terraform >= 1.5)
 system-skills/         # Built-in skills deployed to S3 (create-ppt, create-pdf, skill-authoring-best-practices)
 deployment.sh          # Interactive deployment wizard
@@ -60,7 +60,7 @@ pip install -r requirements.txt
 python -m agent                    # Starts FastAPI on port 8080
 ```
 
-Lambdas (`kb_indexer`, `expiry_cleanup`) use only boto3 from the Lambda runtime — no extra dependencies.
+Lambdas (`kb_indexer`, `expiry_cleanup`, `task_executor`) use only boto3 from the Lambda runtime — no extra dependencies.
 
 ### Infrastructure
 
@@ -82,12 +82,13 @@ The build script `infra/build.sh` packages Lambda code into `infra/build/`.
 
 ## Architecture overview
 
-Two AgentCore runtimes (Docker containers on ECR), two Lambdas, DynamoDB tables, S3 buckets, Cognito auth, Amplify hosting, Bedrock Knowledge Base, and AgentCore Memory.
+Two AgentCore runtimes (Docker containers on ECR), three Lambdas, DynamoDB tables, S3 buckets, Cognito auth, Amplify hosting, Bedrock Knowledge Base, and AgentCore Memory.
 
 - **Sparky runtime** (`backend/sparky/`): Streaming agent. FastAPI + LangGraph + LangChain AWS. Handles chat, tool execution, canvas, browser, code interpreter. Uses DynamoDB checkpointer with S3 offload for conversation state. Entry point: `agent.py`. Graph definition: `graph.py`. Prompt: `prompt.py`. Streaming: `streaming.py`.
-- **Core Services runtime** (`backend/core_services/`): Sync CRUD API. Chat history, tool config, MCP server management, skills CRUD, KB search. Entry point: `agent.py`. Route handlers: `handlers.py`.
+- **Core Services runtime** (`backend/core_services/`): Sync CRUD API. Chat history, tool config, MCP server management, skills CRUD, KB search, scheduled task management. Entry point: `agent.py`. Route handlers: `handlers.py`.
 - **kb_indexer Lambda**: Triggered by SQS. Ingests conversation documents into Bedrock Knowledge Base.
 - **expiry_cleanup Lambda**: Triggered by SQS (via EventBridge Pipe from DynamoDB Stream REMOVE events). Cleans up expired KB docs and AgentCore Memory events.
+- **task_executor Lambda**: Triggered by SQS (via EventBridge Scheduler). Obtains a Cognito M2M token, invokes the Sparky runtime with the scheduled prompt, and records execution results.
 - **Frontend**: Vite + React 18 + Tailwind CSS + shadcn/ui. Auth via AWS Amplify + Cognito. Hosted on Amplify.
 
 ## Key backend files
@@ -110,8 +111,8 @@ Two AgentCore runtimes (Docker containers on ECR), two Lambdas, DynamoDB tables,
 | `backend/core_services/handlers.py` | All sync API route handlers |
 | `backend/core_services/skills_service.py` | Skills CRUD and S3 sync |
 | `backend/core_services/tool_config_service.py` | Per-user tool configuration |
-| `backend/core_services/cron_service.py` | Cron job CRUD, EventBridge Scheduler management |
-| `backend/cron_executor/handler.py` | Cron job executor Lambda (SQS → AgentCore invoke) |
+| `backend/core_services/scheduled_task_service.py` | Scheduled task CRUD, EventBridge Scheduler management |
+| `backend/task_executor/handler.py` | Scheduled task executor Lambda (SQS → Cognito M2M token → AgentCore invoke) |
 
 ## Key frontend files
 
@@ -128,8 +129,8 @@ Two AgentCore runtimes (Docker containers on ECR), two Lambdas, DynamoDB tables,
 | `src/pages/ToolConfig/ToolConfigPage.jsx` | Tool and MCP server configuration UI |
 | `src/pages/Skills/SkillsPage.jsx` | Skills management UI |
 | `src/pages/Projects/ProjectsPage.jsx` | Projects management UI |
-| `src/pages/CronJobs/CronJobsPage.jsx` | Cron jobs management UI (list, detail, create/edit, execution history) |
-| `src/services/cronJobsService.js` | Cron jobs API client |
+| `src/pages/ScheduledTasks/ScheduledTasksPage.jsx` | Scheduled tasks management UI (list, detail, create/edit, manual trigger, execution history) |
+| `src/services/scheduledTasksService.js` | Scheduled tasks API client |
 
 ## Terraform modules
 
@@ -149,7 +150,7 @@ All in `infra/`. Key files:
 | `checkpointer.tf` | Checkpoint DynamoDB table and S3 bucket |
 | `agentcore_memory.tf` | AgentCore Memory resource |
 | `system_skills.tf` | S3 upload of system-skills to skills bucket |
-| `cron_jobs.tf` | Cron job DynamoDB tables, SQS queue, executor Lambda, EventBridge Scheduler IAM |
+| `scheduled_tasks.tf` | Scheduled task DynamoDB tables, SQS queue, executor Lambda, EventBridge Scheduler IAM, Cognito M2M client |
 | `project_memory.tf` | Project memory AgentCore resource |
 | `variables.tf` | All input variables including model config |
 
@@ -222,6 +223,17 @@ Images run as non-root user `bedrock_agentcore` (UID 1000). Sparky exposes ports
 ### Core Services runtime
 
 - `CHAT_HISTORY_TABLE`, `TOOL_CONFIG_TABLE`, `KB_ID`, `RERANK_MODEL_ARN`, `MODEL_ID`, `REGION`
+- `TASK_JOBS_TABLE`, `TASK_EXECUTIONS_TABLE` — DynamoDB tables for scheduled tasks
+- `TASK_QUEUE_URL` — SQS queue for task execution messages
+- `TASK_SCHEDULER_ROLE_ARN` — IAM role for EventBridge Scheduler
+
+### Task executor Lambda
+
+- `TASK_JOBS_TABLE`, `TASK_EXECUTIONS_TABLE` — DynamoDB tables
+- `SPARKY_RUNTIME_ARN` — Sparky AgentCore runtime ARN
+- `COGNITO_TOKEN_URL`, `COGNITO_CLIENT_ID`, `COGNITO_CLIENT_SECRET`, `COGNITO_SCOPE` — M2M auth credentials
+- `S3_BUCKET` — Artifact bucket for large output offload
+- `REGION`
 
 ### Frontend (.env generated by deployment.sh)
 
@@ -248,6 +260,7 @@ Current skills: `create-ppt`, `create-pdf`, `skill-authoring-best-practices`.
 
 - All API requests require Cognito JWT tokens validated by AgentCore runtime
 - Session ownership validated before processing (user_sub from JWT)
+- Scheduled task executor uses Cognito client credentials (M2M) flow with a dedicated app client
 - Docker containers run as non-root
 - DynamoDB TTL and S3 lifecycle for data expiry (configurable 30-365 days)
 - No secrets in code — all sensitive config via environment variables from Terraform
@@ -280,12 +293,12 @@ Current skills: `create-ppt`, `create-pdf`, `skill-authoring-best-practices`.
 1. Add entry to `sparky_models` in `infra/variables.tf`
 2. Redeploy backend (`./deployment.sh`)
 
-### Add a cron job
+### Add a scheduled task
 
-1. User creates a job via the `/cron-jobs` UI (name, schedule expression, prompt)
-2. `core_services` writes to `cron_jobs` DynamoDB table and creates an EventBridge Scheduler schedule
-3. EventBridge sends `{job_id, user_id}` to the `cron-execution` SQS queue on schedule
-4. `cron_executor` Lambda reads the job, invokes Sparky AgentCore runtime with the prompt, and records the execution result
-5. User views execution history and output in the UI
+1. User creates a task via the `/scheduled-tasks` UI (name, schedule expression, prompt)
+2. `core_services` writes to `scheduled_tasks` DynamoDB table and creates an EventBridge Scheduler schedule
+3. EventBridge sends `{job_id, user_id}` to the `task-execution` SQS queue on schedule
+4. `task_executor` Lambda obtains a Cognito M2M token, invokes Sparky AgentCore runtime with the prompt, and records the execution result
+5. User views execution history and output in the UI, or triggers a manual run via the "Run Now" button
 
-Key files: `backend/core_services/cron_service.py`, `backend/cron_executor/handler.py`, `infra/cron_jobs.tf`, `src/pages/CronJobs/CronJobsPage.jsx`
+Key files: `backend/core_services/scheduled_task_service.py`, `backend/task_executor/handler.py`, `infra/scheduled_tasks.tf`, `src/pages/ScheduledTasks/ScheduledTasksPage.jsx`

@@ -1,4 +1,4 @@
-"""Cron job executor Lambda.
+"""Scheduled task executor Lambda.
 
 Processes SQS messages from EventBridge Scheduler, invokes the Sparky
 AgentCore runtime with the scheduled prompt, and records execution results.
@@ -10,6 +10,7 @@ import os
 import time
 import urllib.parse
 import uuid
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import boto3
@@ -17,19 +18,37 @@ import boto3
 logger = logging.getLogger()
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
-CRON_JOBS_TABLE = os.environ.get("CRON_JOBS_TABLE")
-CRON_EXECUTIONS_TABLE = os.environ.get("CRON_EXECUTIONS_TABLE")
+TASK_JOBS_TABLE = os.environ.get("TASK_JOBS_TABLE")
+TASK_EXECUTIONS_TABLE = os.environ.get("TASK_EXECUTIONS_TABLE")
 SPARKY_RUNTIME_ARN = os.environ.get("SPARKY_RUNTIME_ARN")
 S3_BUCKET = os.environ.get("S3_BUCKET")
 REGION = os.environ.get("REGION", os.environ.get("AWS_REGION", "us-east-1"))
+
+COGNITO_TOKEN_URL = os.environ.get("COGNITO_TOKEN_URL")
+COGNITO_CLIENT_ID = os.environ.get("COGNITO_CLIENT_ID")
+COGNITO_CLIENT_SECRET = os.environ.get("COGNITO_CLIENT_SECRET")
+COGNITO_SCOPE = os.environ.get("COGNITO_SCOPE", "sparky-api/invoke")
+
+# Validate required env vars at import time so failures are loud and immediate
+_REQUIRED_ENV = {
+    "TASK_JOBS_TABLE": TASK_JOBS_TABLE,
+    "TASK_EXECUTIONS_TABLE": TASK_EXECUTIONS_TABLE,
+    "SPARKY_RUNTIME_ARN": SPARKY_RUNTIME_ARN,
+    "COGNITO_TOKEN_URL": COGNITO_TOKEN_URL,
+    "COGNITO_CLIENT_ID": COGNITO_CLIENT_ID,
+    "COGNITO_CLIENT_SECRET": COGNITO_CLIENT_SECRET,
+}
+_missing = [k for k, v in _REQUIRED_ENV.items() if not v]
+if _missing:
+    raise EnvironmentError(f"Missing required environment variables: {', '.join(_missing)}")
 
 # 400KB limit for DynamoDB item (leaving room for other attributes)
 MAX_DYNAMO_OUTPUT_BYTES = 400_000
 
 dynamodb = boto3.resource("dynamodb", region_name=REGION)
 s3_client = boto3.client("s3", region_name=REGION)
-cron_jobs_table = dynamodb.Table(CRON_JOBS_TABLE) if CRON_JOBS_TABLE else None
-cron_executions_table = dynamodb.Table(CRON_EXECUTIONS_TABLE) if CRON_EXECUTIONS_TABLE else None
+jobs_table = dynamodb.Table(TASK_JOBS_TABLE)
+executions_table = dynamodb.Table(TASK_EXECUTIONS_TABLE)
 
 
 def _now_iso() -> str:
@@ -39,13 +58,13 @@ def _now_iso() -> str:
 
 def _get_job(user_id: str, job_id: str) -> dict | None:
     """Read job definition from DynamoDB."""
-    resp = cron_jobs_table.get_item(Key={"user_id": user_id, "job_id": job_id})
+    resp = jobs_table.get_item(Key={"user_id": user_id, "job_id": job_id})
     return resp.get("Item")
 
 
 def _create_execution(job_id: str, user_id: str, execution_id: str) -> None:
     """Create an execution record with status=running."""
-    cron_executions_table.put_item(Item={
+    executions_table.put_item(Item={
         "job_id": job_id,
         "execution_id": execution_id,
         "user_id": user_id,
@@ -62,7 +81,7 @@ def _complete_execution(
     output_value = output
 
     if output and len(output.encode("utf-8")) > MAX_DYNAMO_OUTPUT_BYTES:
-        s3_key = f"cron-outputs/{job_id}/{execution_id}.txt"
+        s3_key = f"task-outputs/{job_id}/{execution_id}.txt"
         s3_client.put_object(Bucket=S3_BUCKET, Key=s3_key, Body=output.encode("utf-8"))
         output_field = "output_s3_key"
         output_value = s3_key
@@ -83,18 +102,13 @@ def _complete_execution(
         update_expr += ", error_message = :e"
         attr_values[":e"] = error[:2000]
 
-    cron_executions_table.update_item(
+    executions_table.update_item(
         Key={"job_id": job_id, "execution_id": execution_id},
         UpdateExpression=update_expr,
         ExpressionAttributeNames=attr_names,
         ExpressionAttributeValues=attr_values,
     )
 
-
-COGNITO_TOKEN_URL = os.environ.get("COGNITO_TOKEN_URL")
-COGNITO_CLIENT_ID = os.environ.get("COGNITO_CLIENT_ID")
-COGNITO_CLIENT_SECRET = os.environ.get("COGNITO_CLIENT_SECRET")
-COGNITO_SCOPE = os.environ.get("COGNITO_SCOPE", "sparky-api/invoke")
 
 _cached_token = {"access_token": None, "expires_at": 0}
 
@@ -115,8 +129,12 @@ def _get_access_token() -> str:
         "Content-Type": "application/x-www-form-urlencoded",
         "Authorization": f"Basic {creds}",
     })
-    with urlopen(req, timeout=10) as resp:
-        token_data = json.loads(resp.read())
+    try:
+        with urlopen(req, timeout=10) as resp:
+            token_data = json.loads(resp.read())
+    except (HTTPError, URLError) as e:
+        logger.error("Failed to obtain access token from Cognito")
+        raise RuntimeError("Authentication failed") from e
 
     _cached_token["access_token"] = token_data["access_token"]
     _cached_token["expires_at"] = time.time() + token_data.get("expires_in", 3600)
@@ -135,43 +153,46 @@ def _invoke_runtime(prompt: str, session_id: str, user_id: str) -> str:
     }
 
     # 1. Create session so ownership validation passes
-    create_body = json.dumps({"input": {"type": "create_session", "user_id": user_id}}).encode()
-    req = Request(base_url, data=create_body, method="POST", headers=headers_base)
-    with urlopen(req, timeout=30) as resp:
-        create_resp = resp.read().decode("utf-8", errors="replace")
-        logger.info("create_session response: %s", create_resp[:500])
+    try:
+        create_body = json.dumps({"input": {"type": "create_session", "user_id": user_id}}).encode()
+        req = Request(base_url, data=create_body, method="POST", headers=headers_base)
+        with urlopen(req, timeout=30) as resp:
+            resp.read()
+    except (HTTPError, URLError) as e:
+        raise RuntimeError(f"Failed to create runtime session: {e}") from e
 
     # 2. Send the actual prompt
-    prompt_body = json.dumps({"input": {"prompt": prompt, "user_id": user_id}}).encode()
-    req = Request(base_url, data=prompt_body, method="POST", headers=headers_base)
+    try:
+        prompt_body = json.dumps({"input": {"prompt": prompt, "user_id": user_id}}).encode()
+        req = Request(base_url, data=prompt_body, method="POST", headers=headers_base)
 
-    text_parts = []
-    with urlopen(req, timeout=890) as resp:
-        raw_body = resp.read().decode("utf-8", errors="replace")
-        logger.info("prompt response (first 1000 chars): %s", raw_body[:1000])
-        for line in raw_body.splitlines():
-            line = line.strip()
-            if not line.startswith("data: "):
-                continue
-            try:
-                chunk = json.loads(line[6:])
-            except json.JSONDecodeError:
-                continue
+        text_parts = []
+        with urlopen(req, timeout=890) as resp:
+            for raw_line in resp:
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line.startswith("data: "):
+                    continue
+                try:
+                    chunk = json.loads(line[6:])
+                except json.JSONDecodeError:
+                    continue
 
-            if chunk.get("end"):
-                break
-            if chunk.get("type") == "error":
-                raise RuntimeError(chunk.get("content", "Runtime error"))
+                if chunk.get("end"):
+                    break
+                if chunk.get("type") == "error":
+                    raise RuntimeError(chunk.get("content", "Runtime error"))
 
-            content = chunk.get("content")
-            if content and isinstance(content, str):
-                text_parts.append(content)
+                content = chunk.get("content")
+                if content and isinstance(content, str):
+                    text_parts.append(content)
 
-    return "".join(text_parts)
+        return "".join(text_parts)
+    except (HTTPError, URLError) as e:
+        raise RuntimeError(f"Failed to invoke runtime: {e}") from e
 
 
 def handler(event, context):
-    """Process SQS batch of cron execution messages."""
+    """Process SQS batch of task execution messages."""
     failures = []
 
     for record in event.get("Records", []):
@@ -183,7 +204,7 @@ def handler(event, context):
             body = json.loads(record["body"])
             job_id = body["job_id"]
             user_id = body["user_id"]
-            logger.info("Executing cron job %s for user %s", job_id, user_id)
+            logger.info("Executing scheduled task %s for user %s", job_id, user_id)
 
             # 1. Read job definition
             job = _get_job(user_id, job_id)
@@ -206,10 +227,10 @@ def handler(event, context):
 
             # 5. Record success
             _complete_execution(job_id, execution_id, "completed", output)
-            logger.info("Cron job %s execution %s completed", job_id, execution_id)
+            logger.info("Scheduled task %s execution %s completed", job_id, execution_id)
 
         except Exception as e:
-            logger.exception("Failed to execute cron job %s", job_id or message_id)
+            logger.exception("Failed to execute scheduled task %s", job_id or message_id)
             # Record failure if we created an execution record
             if job_id:
                 try:

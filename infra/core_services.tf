@@ -81,10 +81,10 @@ resource "aws_bedrockagentcore_agent_runtime" "core_services" {
     CHECKPOINT_TABLE           = aws_dynamodb_table.checkpoints.id,
     CHECKPOINT_BUCKET          = local.checkpoint_bucket_name,
     CHECKPOINT_BUCKET_ENDPOINT = local.checkpoint_bucket_endpoint
-    CRON_JOBS_TABLE            = aws_dynamodb_table.cron_jobs.id,
-    CRON_EXECUTIONS_TABLE      = aws_dynamodb_table.cron_job_executions.id,
-    CRON_QUEUE_URL             = aws_sqs_queue.cron_execution.url,
-    CRON_SCHEDULER_ROLE_ARN    = aws_iam_role.cron_scheduler_role.arn
+    TASK_JOBS_TABLE            = aws_dynamodb_table.scheduled_tasks.id,
+    TASK_EXECUTIONS_TABLE      = aws_dynamodb_table.scheduled_task_executions.id,
+    TASK_QUEUE_URL             = aws_sqs_queue.task_execution.url,
+    TASK_SCHEDULER_ROLE_ARN    = aws_iam_role.task_scheduler_role.arn
   }
 
   authorizer_configuration {
@@ -365,7 +365,7 @@ resource "aws_iam_role_policy" "core_services_sqs_policy" {
         ]
         Resource = [
           aws_sqs_queue.kb_indexing.arn,
-          aws_sqs_queue.cron_execution.arn
+          aws_sqs_queue.task_execution.arn
         ]
       }
     ]

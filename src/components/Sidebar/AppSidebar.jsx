@@ -122,8 +122,8 @@ export function AppSidebar({
       icon: FolderOpen,
     },
     {
-      title: "Cron Jobs",
-      url: "/cron-jobs",
+      title: "Scheduled Tasks",
+      url: "/scheduled-tasks",
       icon: Clock,
     },
     {

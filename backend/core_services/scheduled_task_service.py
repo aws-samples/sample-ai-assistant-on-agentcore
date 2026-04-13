@@ -1,6 +1,6 @@
-"""Cron Job Service for Core-Services.
+"""Scheduled Task Service for Core-Services.
 
-DynamoDB CRUD for cron_jobs and cron_job_executions tables,
+DynamoDB CRUD for scheduled_tasks and scheduled_task_executions tables,
 plus EventBridge Scheduler management for schedule lifecycle.
 """
 
@@ -17,13 +17,23 @@ from botocore.exceptions import ClientError
 from config import REGION
 from utils import logger
 
-CRON_JOBS_TABLE = os.environ.get("CRON_JOBS_TABLE")
-CRON_EXECUTIONS_TABLE = os.environ.get("CRON_EXECUTIONS_TABLE")
-CRON_QUEUE_URL = os.environ.get("CRON_QUEUE_URL")
-CRON_SCHEDULER_ROLE_ARN = os.environ.get("CRON_SCHEDULER_ROLE_ARN")
+TASK_JOBS_TABLE = os.environ.get("TASK_JOBS_TABLE")
+TASK_EXECUTIONS_TABLE = os.environ.get("TASK_EXECUTIONS_TABLE")
+TASK_QUEUE_URL = os.environ.get("TASK_QUEUE_URL")
+TASK_SCHEDULER_ROLE_ARN = os.environ.get("TASK_SCHEDULER_ROLE_ARN")
 ENV_PREFIX = os.environ.get("ENV_PREFIX", "sparky")
 
-SCHEDULE_GROUP = f"{ENV_PREFIX}-cron-jobs"
+_REQUIRED_ENV = {
+    "TASK_JOBS_TABLE": TASK_JOBS_TABLE,
+    "TASK_EXECUTIONS_TABLE": TASK_EXECUTIONS_TABLE,
+    "TASK_QUEUE_URL": TASK_QUEUE_URL,
+    "TASK_SCHEDULER_ROLE_ARN": TASK_SCHEDULER_ROLE_ARN,
+}
+_missing = [k for k, v in _REQUIRED_ENV.items() if not v]
+if _missing:
+    logger.error("Missing required environment variables: %s", ", ".join(_missing))
+
+SCHEDULE_GROUP = f"{ENV_PREFIX}-scheduled-tasks"
 
 
 def _fix_decimals(obj: Any) -> Any:
@@ -40,16 +50,17 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-class CronService:
+class ScheduledTaskService:
     def __init__(self):
         self.dynamodb = boto3.resource("dynamodb", region_name=REGION)
-        self.jobs_table = self.dynamodb.Table(CRON_JOBS_TABLE) if CRON_JOBS_TABLE else None
+        self.jobs_table = self.dynamodb.Table(TASK_JOBS_TABLE) if TASK_JOBS_TABLE else None
         self.executions_table = (
-            self.dynamodb.Table(CRON_EXECUTIONS_TABLE) if CRON_EXECUTIONS_TABLE else None
+            self.dynamodb.Table(TASK_EXECUTIONS_TABLE) if TASK_EXECUTIONS_TABLE else None
         )
         self.scheduler = boto3.client("scheduler", region_name=REGION)
         self.sqs = boto3.client("sqs", region_name=REGION)
-        self._ensure_schedule_group()
+        if not _missing:
+            self._ensure_schedule_group()
 
     def _ensure_schedule_group(self):
         """Create the schedule group if it doesn't exist."""
@@ -64,7 +75,7 @@ class CronService:
             logger.warning("Could not verify schedule group %s", SCHEDULE_GROUP)
 
     def _schedule_name(self, job_id: str) -> str:
-        return f"{ENV_PREFIX}-cron-{job_id}"
+        return f"{ENV_PREFIX}-task-{job_id}"
 
     # =========================================================================
     # Jobs CRUD
@@ -256,7 +267,7 @@ class CronService:
         await loop.run_in_executor(
             None,
             lambda: self.sqs.send_message(
-                QueueUrl=CRON_QUEUE_URL,
+                QueueUrl=TASK_QUEUE_URL,
                 MessageBody=json.dumps({"job_id": job_id, "user_id": user_id}),
             ),
         )
@@ -343,7 +354,7 @@ class CronService:
             resp = await loop.run_in_executor(
                 None,
                 lambda: self.sqs.get_queue_attributes(
-                    QueueUrl=CRON_QUEUE_URL, AttributeNames=["QueueArn"]
+                    QueueUrl=TASK_QUEUE_URL, AttributeNames=["QueueArn"]
                 ),
             )
             queue_arn = resp["Attributes"]["QueueArn"]
@@ -358,7 +369,7 @@ class CronService:
                     FlexibleTimeWindow={"Mode": "OFF"},
                     Target={
                         "Arn": queue_arn,
-                        "RoleArn": CRON_SCHEDULER_ROLE_ARN,
+                        "RoleArn": TASK_SCHEDULER_ROLE_ARN,
                         "Input": json.dumps({"job_id": job_id, "user_id": user_id}),
                     },
                     State="ENABLED",
@@ -378,7 +389,7 @@ class CronService:
             resp = await loop.run_in_executor(
                 None,
                 lambda: self.sqs.get_queue_attributes(
-                    QueueUrl=CRON_QUEUE_URL, AttributeNames=["QueueArn"]
+                    QueueUrl=TASK_QUEUE_URL, AttributeNames=["QueueArn"]
                 ),
             )
             queue_arn = resp["Attributes"]["QueueArn"]
@@ -393,7 +404,7 @@ class CronService:
                     FlexibleTimeWindow={"Mode": "OFF"},
                     Target={
                         "Arn": queue_arn,
-                        "RoleArn": CRON_SCHEDULER_ROLE_ARN,
+                        "RoleArn": TASK_SCHEDULER_ROLE_ARN,
                         "Input": json.dumps({"job_id": job_id, "user_id": user_id}),
                     },
                     State="ENABLED" if enabled else "DISABLED",
@@ -446,4 +457,4 @@ class CronService:
             logger.exception("Failed to delete schedule for job %s", job_id)
 
 
-cron_service = CronService()
+scheduled_task_service = ScheduledTaskService()

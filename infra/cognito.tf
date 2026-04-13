@@ -82,9 +82,9 @@ resource "aws_cognito_resource_server" "sparky_api" {
   }
 }
 
-# M2M client for cron executor Lambda (client credentials flow)
-resource "aws_cognito_user_pool_client" "cron_executor" {
-  name         = "${local.prefix}-cron-executor"
+# M2M client for task executor Lambda (client credentials flow)
+resource "aws_cognito_user_pool_client" "task_executor" {
+  name         = "${local.prefix}-task-executor"
   user_pool_id = aws_cognito_user_pool.user_pool.id
 
   generate_secret = true

@@ -30,7 +30,7 @@ resource "aws_bedrockagentcore_agent_runtime" "sparky" {
   authorizer_configuration {
     custom_jwt_authorizer {
       discovery_url   = "https://cognito-idp.${var.region}.amazonaws.com/${aws_cognito_user_pool.user_pool.id}/.well-known/openid-configuration"
-      allowed_clients = [aws_cognito_user_pool_client.client.id, aws_cognito_user_pool_client.cron_executor.id]
+      allowed_clients = [aws_cognito_user_pool_client.client.id, aws_cognito_user_pool_client.task_executor.id]
     }
   }
   agent_runtime_artifact {
