@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 
 const PLACEHOLDER_JSON = `{
   "mcpServers": {
@@ -214,7 +215,7 @@ function AddMCPServerDialog({ open, onOpenChange, onAdd, disabled = false }) {
               <Label htmlFor="mcp-json-config">
                 Server Configuration <span className="required">*</span>
               </Label>
-              <textarea
+              <Textarea
                 id="mcp-json-config"
                 value={jsonText}
                 onChange={handleJsonChange}
