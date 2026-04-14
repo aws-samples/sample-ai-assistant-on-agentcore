@@ -14,6 +14,7 @@ import asyncio
 from typing import Dict, Any, Optional
 from fastapi.responses import JSONResponse
 
+from botocore.exceptions import ClientError
 from utils import logger, CORS_HEADERS, error_envelope
 from config import bedrock_client, MODEL_ID, history_graph, checkpointer
 from history_manager import get_history
@@ -2765,6 +2766,11 @@ class RequestHandlers:
     # =========================================================================
 
     @staticmethod
+    async def _get_task_service():
+        from scheduled_task_service import scheduled_task_service
+        return scheduled_task_service
+
+    @staticmethod
     async def handle_create_scheduled_task(
         user_id: str,
         name: str,
@@ -2782,9 +2788,8 @@ class RequestHandlers:
                 return error_envelope(
                     "validation_error", "schedule_expression is required"
                 )
-            from scheduled_task_service import scheduled_task_service
-
-            job = await scheduled_task_service.create_job(
+            svc = await RequestHandlers._get_task_service()
+            job = await svc.create_job(
                 user_id=user_id,
                 name=name,
                 prompt=prompt,
@@ -2795,43 +2800,41 @@ class RequestHandlers:
             return JSONResponse(
                 {"type": "scheduled_task_created", "job": job}, headers=CORS_HEADERS
             )
-        except Exception as e:
-            logger.error(f"Failed to create scheduled task: {e}")
-            return error_envelope("internal_error", "Failed to create scheduled task")
+        except ValueError as e:
+            return error_envelope("validation_error", str(e))
+        except ClientError as e:
+            logger.error("AWS error creating scheduled task: %s", e)
+            return error_envelope("aws_error", f"Failed to create scheduled task: {e.response['Error']['Message']}")
 
     @staticmethod
     async def handle_list_scheduled_tasks(
         user_id: str, limit: int = 50, cursor=None
     ) -> JSONResponse:
         try:
-            from scheduled_task_service import scheduled_task_service
-
-            result = await scheduled_task_service.list_jobs(
-                user_id=user_id, limit=limit, cursor=cursor
-            )
+            svc = await RequestHandlers._get_task_service()
+            result = await svc.list_jobs(user_id=user_id, limit=limit, cursor=cursor)
             return JSONResponse(
                 {"type": "scheduled_tasks_list", **result}, headers=CORS_HEADERS
             )
-        except Exception as e:
-            logger.error(f"Failed to list scheduled tasks: {e}")
-            return error_envelope("internal_error", "Failed to list scheduled tasks")
+        except ClientError as e:
+            logger.error("AWS error listing scheduled tasks: %s", e)
+            return error_envelope("aws_error", "Failed to list scheduled tasks")
 
     @staticmethod
     async def handle_get_scheduled_task(user_id: str, job_id: str) -> JSONResponse:
         try:
             if not job_id:
                 return error_envelope("validation_error", "job_id is required")
-            from scheduled_task_service import scheduled_task_service
-
-            job = await scheduled_task_service.get_job(user_id, job_id)
+            svc = await RequestHandlers._get_task_service()
+            job = await svc.get_job(user_id, job_id)
             if not job:
                 return error_envelope("not_found", "Scheduled task not found")
             return JSONResponse(
                 {"type": "scheduled_task", "job": job}, headers=CORS_HEADERS
             )
-        except Exception as e:
-            logger.error(f"Failed to get scheduled task {job_id}: {e}")
-            return error_envelope("internal_error", "Failed to get scheduled task")
+        except ClientError as e:
+            logger.error("AWS error getting scheduled task %s: %s", job_id, e)
+            return error_envelope("aws_error", "Failed to get scheduled task")
 
     @staticmethod
     async def handle_update_scheduled_task(
@@ -2846,9 +2849,8 @@ class RequestHandlers:
         try:
             if not job_id:
                 return error_envelope("validation_error", "job_id is required")
-            from scheduled_task_service import scheduled_task_service
-
-            job = await scheduled_task_service.update_job(
+            svc = await RequestHandlers._get_task_service()
+            job = await svc.update_job(
                 user_id=user_id,
                 job_id=job_id,
                 name=name,
@@ -2862,27 +2864,28 @@ class RequestHandlers:
             return JSONResponse(
                 {"type": "scheduled_task_updated", "job": job}, headers=CORS_HEADERS
             )
-        except Exception as e:
-            logger.error(f"Failed to update scheduled task {job_id}: {e}")
-            return error_envelope("internal_error", "Failed to update scheduled task")
+        except ValueError as e:
+            return error_envelope("validation_error", str(e))
+        except ClientError as e:
+            logger.error("AWS error updating scheduled task %s: %s", job_id, e)
+            return error_envelope("aws_error", f"Failed to update scheduled task: {e.response['Error']['Message']}")
 
     @staticmethod
     async def handle_delete_scheduled_task(user_id: str, job_id: str) -> JSONResponse:
         try:
             if not job_id:
                 return error_envelope("validation_error", "job_id is required")
-            from scheduled_task_service import scheduled_task_service
-
-            deleted = await scheduled_task_service.delete_job(user_id, job_id)
+            svc = await RequestHandlers._get_task_service()
+            deleted = await svc.delete_job(user_id, job_id)
             if not deleted:
                 return error_envelope("not_found", "Scheduled task not found")
             return JSONResponse(
                 {"type": "scheduled_task_deleted", "job_id": job_id},
                 headers=CORS_HEADERS,
             )
-        except Exception as e:
-            logger.error(f"Failed to delete scheduled task {job_id}: {e}")
-            return error_envelope("internal_error", "Failed to delete scheduled task")
+        except ClientError as e:
+            logger.error("AWS error deleting scheduled task %s: %s", job_id, e)
+            return error_envelope("aws_error", "Failed to delete scheduled task")
 
     @staticmethod
     async def handle_toggle_scheduled_task(
@@ -2891,35 +2894,35 @@ class RequestHandlers:
         try:
             if not job_id:
                 return error_envelope("validation_error", "job_id is required")
-            from scheduled_task_service import scheduled_task_service
-
-            job = await scheduled_task_service.toggle_job(user_id, job_id, enabled)
+            svc = await RequestHandlers._get_task_service()
+            job = await svc.toggle_job(user_id, job_id, enabled)
             if not job:
                 return error_envelope("not_found", "Scheduled task not found")
             return JSONResponse(
                 {"type": "scheduled_task_toggled", "job": job}, headers=CORS_HEADERS
             )
-        except Exception as e:
-            logger.error(f"Failed to toggle scheduled task {job_id}: {e}")
-            return error_envelope("internal_error", "Failed to toggle scheduled task")
+        except ValueError as e:
+            return error_envelope("validation_error", str(e))
+        except ClientError as e:
+            logger.error("AWS error toggling scheduled task %s: %s", job_id, e)
+            return error_envelope("aws_error", f"Failed to toggle scheduled task: {e.response['Error']['Message']}")
 
     @staticmethod
     async def handle_trigger_scheduled_task(user_id: str, job_id: str) -> JSONResponse:
         try:
             if not job_id:
                 return error_envelope("validation_error", "job_id is required")
-            from scheduled_task_service import scheduled_task_service
-
-            triggered = await scheduled_task_service.trigger_job(user_id, job_id)
+            svc = await RequestHandlers._get_task_service()
+            triggered = await svc.trigger_job(user_id, job_id)
             if not triggered:
                 return error_envelope("not_found", "Scheduled task not found")
             return JSONResponse(
                 {"type": "scheduled_task_triggered", "job_id": job_id},
                 headers=CORS_HEADERS,
             )
-        except Exception as e:
-            logger.error(f"Failed to trigger scheduled task {job_id}: {e}")
-            return error_envelope("internal_error", "Failed to trigger scheduled task")
+        except ClientError as e:
+            logger.error("AWS error triggering scheduled task %s: %s", job_id, e)
+            return error_envelope("aws_error", "Failed to trigger scheduled task")
 
     @staticmethod
     async def handle_list_task_executions(
@@ -2928,20 +2931,16 @@ class RequestHandlers:
         try:
             if not job_id:
                 return error_envelope("validation_error", "job_id is required")
-            from scheduled_task_service import scheduled_task_service
-
-            result = await scheduled_task_service.list_executions(
-                job_id=job_id,
-                user_id=user_id,
-                limit=limit,
-                cursor=cursor,
+            svc = await RequestHandlers._get_task_service()
+            result = await svc.list_executions(
+                job_id=job_id, user_id=user_id, limit=limit, cursor=cursor,
             )
             return JSONResponse(
                 {"type": "task_executions_list", **result}, headers=CORS_HEADERS
             )
-        except Exception as e:
-            logger.error(f"Failed to list executions for job {job_id}: {e}")
-            return error_envelope("internal_error", "Failed to list executions")
+        except ClientError as e:
+            logger.error("AWS error listing executions for job %s: %s", job_id, e)
+            return error_envelope("aws_error", "Failed to list executions")
 
     @staticmethod
     async def handle_get_task_execution(
@@ -2952,19 +2951,16 @@ class RequestHandlers:
                 return error_envelope(
                     "validation_error", "job_id and execution_id are required"
                 )
-            from scheduled_task_service import scheduled_task_service
-
-            execution = await scheduled_task_service.get_execution(
-                job_id, execution_id, user_id
-            )
+            svc = await RequestHandlers._get_task_service()
+            execution = await svc.get_execution(job_id, execution_id, user_id)
             if not execution:
                 return error_envelope("not_found", "Execution not found")
             return JSONResponse(
                 {"type": "task_execution", "execution": execution}, headers=CORS_HEADERS
             )
-        except Exception as e:
-            logger.error(f"Failed to get execution {execution_id}: {e}")
-            return error_envelope("internal_error", "Failed to get execution")
+        except ClientError as e:
+            logger.error("AWS error getting execution %s: %s", execution_id, e)
+            return error_envelope("aws_error", "Failed to get execution")
 
 
 # Global handlers instance

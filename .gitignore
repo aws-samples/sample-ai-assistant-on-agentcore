@@ -45,4 +45,6 @@ CLAUDE.md
 docs/
 __pycache__
 delete-os.py
-.ruff_cache.archive
+.ruff_cache
+
+.archive

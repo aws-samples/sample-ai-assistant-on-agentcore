@@ -24,26 +24,28 @@ async function coreRequest(input) {
     body: JSON.stringify({ input }),
   });
   if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
+    const err = await response.json().catch(() => ({ error: `Request failed: ${response.status}` }));
     throw new Error(err.error || `Request failed: ${response.status}`);
   }
   return response.json();
 }
 
-export const listScheduledTasks = (limit = 50, cursor = null) =>
-  coreRequest({ type: "list_scheduled_tasks", limit, cursor });
+export function listScheduledTasks(limit = 50, cursor = null) {
+  return coreRequest({ type: "list_scheduled_tasks", limit, cursor });
+}
 
-export const getScheduledTask = (jobId) =>
-  coreRequest({ type: "get_scheduled_task", job_id: jobId });
+export function getScheduledTask(jobId) {
+  return coreRequest({ type: "get_scheduled_task", job_id: jobId });
+}
 
-export const createScheduledTask = ({
+export function createScheduledTask({
   name,
   prompt,
   schedule_expression,
   timezone = "UTC",
   skills,
-}) =>
-  coreRequest({
+}) {
+  return coreRequest({
     type: "create_scheduled_task",
     name,
     prompt,
@@ -51,21 +53,28 @@ export const createScheduledTask = ({
     timezone,
     skills,
   });
+}
 
-export const updateScheduledTask = (jobId, updates) =>
-  coreRequest({ type: "update_scheduled_task", job_id: jobId, ...updates });
+export function updateScheduledTask(jobId, updates) {
+  return coreRequest({ type: "update_scheduled_task", job_id: jobId, ...updates });
+}
 
-export const deleteScheduledTask = (jobId) =>
-  coreRequest({ type: "delete_scheduled_task", job_id: jobId });
+export function deleteScheduledTask(jobId) {
+  return coreRequest({ type: "delete_scheduled_task", job_id: jobId });
+}
 
-export const toggleScheduledTask = (jobId, enabled) =>
-  coreRequest({ type: "toggle_scheduled_task", job_id: jobId, enabled });
+export function toggleScheduledTask(jobId, enabled) {
+  return coreRequest({ type: "toggle_scheduled_task", job_id: jobId, enabled });
+}
 
-export const triggerScheduledTask = (jobId) =>
-  coreRequest({ type: "trigger_scheduled_task", job_id: jobId });
+export function triggerScheduledTask(jobId) {
+  return coreRequest({ type: "trigger_scheduled_task", job_id: jobId });
+}
 
-export const listTaskExecutions = (jobId, limit = 20, cursor = null) =>
-  coreRequest({ type: "list_task_executions", job_id: jobId, limit, cursor });
+export function listTaskExecutions(jobId, limit = 20, cursor = null) {
+  return coreRequest({ type: "list_task_executions", job_id: jobId, limit, cursor });
+}
 
-export const getTaskExecution = (jobId, executionId) =>
-  coreRequest({ type: "get_task_execution", job_id: jobId, execution_id: executionId });
+export function getTaskExecution(jobId, executionId) {
+  return coreRequest({ type: "get_task_execution", job_id: jobId, execution_id: executionId });
+}

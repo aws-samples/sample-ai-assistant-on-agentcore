@@ -5,12 +5,14 @@ creates an execution record, and fires an async invocation to the Sparky
 AgentCore runtime which handles the long-running execution and result recording.
 """
 
+import base64
 import json
 import logging
 import os
 import time
 import urllib.parse
 import uuid
+from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -51,8 +53,6 @@ _cached_token = {"access_token": None, "expires_at": 0}
 
 
 def _now_iso() -> str:
-    from datetime import datetime, timezone
-
     return datetime.now(timezone.utc).isoformat()
 
 
@@ -60,8 +60,6 @@ def _get_access_token() -> str:
     """Get a JWT access token via Cognito client credentials flow, with caching."""
     if _cached_token["access_token"] and time.time() < _cached_token["expires_at"] - 60:
         return _cached_token["access_token"]
-
-    import base64
 
     creds = base64.b64encode(
         f"{COGNITO_CLIENT_ID}:{COGNITO_CLIENT_SECRET}".encode()
@@ -85,9 +83,13 @@ def _get_access_token() -> str:
     try:
         with urlopen(req, timeout=10) as resp:
             token_data = json.loads(resp.read())
-    except (HTTPError, URLError) as e:
-        logger.error("Failed to obtain access token from Cognito")
-        raise RuntimeError("Authentication failed") from e
+    except HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")[:500]
+        logger.error("Failed to obtain access token: HTTP %s — %s", e.code, body)
+        raise RuntimeError(f"Authentication failed: HTTP {e.code}") from e
+    except URLError as e:
+        logger.error("Failed to connect to Cognito: %s", e.reason)
+        raise RuntimeError(f"Authentication failed: {e.reason}") from e
 
     _cached_token["access_token"] = token_data["access_token"]
     _cached_token["expires_at"] = time.time() + token_data.get("expires_in", 3600)
@@ -129,8 +131,13 @@ def _invoke_runtime_async(
         with urlopen(req, timeout=30) as resp:
             result = json.loads(resp.read())
             logger.info("Runtime accepted task: %s", result)
-    except (HTTPError, URLError) as e:
-        raise RuntimeError(f"Failed to invoke runtime: {e}") from e
+    except HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")[:1000]
+        logger.error("Runtime invocation failed: HTTP %s — %s", e.code, body)
+        raise RuntimeError(f"Failed to invoke runtime: HTTP {e.code} — {body[:200]}") from e
+    except URLError as e:
+        logger.error("Runtime invocation failed: %s", e.reason)
+        raise RuntimeError(f"Failed to invoke runtime: {e.reason}") from e
 
 
 def handler(event, context):
@@ -144,8 +151,11 @@ def handler(event, context):
 
         try:
             body = json.loads(record["body"])
-            job_id = body["job_id"]
-            user_id = body["user_id"]
+            job_id = body.get("job_id")
+            user_id = body.get("user_id")
+            if not job_id or not user_id:
+                logger.error("Invalid task message — missing job_id or user_id: %s", body)
+                continue
             logger.info("Executing scheduled task %s for user %s", job_id, user_id)
 
             # 1. Read job definition
