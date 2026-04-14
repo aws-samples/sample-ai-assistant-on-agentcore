@@ -228,7 +228,56 @@ class ScheduledTaskService:
             ),
         )
         await self._delete_schedule(job_id)
+        await self._cleanup_executions(job_id)
         return True
+
+    async def _cleanup_executions(self, job_id: str) -> None:
+        """Delete all execution records for a job. Checkpoints auto-expire via TTL."""
+        loop = asyncio.get_event_loop()
+        try:
+            execution_ids = []
+            kwargs = {
+                "KeyConditionExpression": "job_id = :jid",
+                "ExpressionAttributeValues": {":jid": job_id},
+                "ProjectionExpression": "execution_id",
+            }
+            while True:
+                resp = await loop.run_in_executor(
+                    None, lambda: self.executions_table.query(**kwargs)
+                )
+                for item in resp.get("Items", []):
+                    execution_ids.append(item["execution_id"])
+                if "LastEvaluatedKey" not in resp:
+                    break
+                kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+
+            if not execution_ids:
+                return
+
+            # Batch-delete execution records (25 per batch, DynamoDB limit)
+            for i in range(0, len(execution_ids), 25):
+                batch = execution_ids[i : i + 25]
+                await loop.run_in_executor(
+                    None,
+                    lambda batch=batch: self.dynamodb.batch_write_item(
+                        RequestItems={
+                            self.executions_table.name: [
+                                {
+                                    "DeleteRequest": {
+                                        "Key": {"job_id": job_id, "execution_id": eid}
+                                    }
+                                }
+                                for eid in batch
+                            ]
+                        }
+                    ),
+                )
+
+            logger.info(
+                "Cleaned up %d executions for job %s", len(execution_ids), job_id
+            )
+        except Exception:
+            logger.exception("Failed to cleanup executions for job %s", job_id)
 
     async def toggle_job(
         self, user_id: str, job_id: str, enabled: bool

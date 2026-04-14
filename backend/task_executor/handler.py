@@ -160,7 +160,7 @@ def handler(event, context):
                 logger.info("Job %s status=%s, skipping", job_id, job.get("status"))
                 continue
 
-            # 2. Create execution record (status=running)
+            # 2. Create execution record (status=running) with 30-day TTL
             executions_table.put_item(
                 Item={
                     "job_id": job_id,
@@ -168,6 +168,7 @@ def handler(event, context):
                     "user_id": user_id,
                     "status": "running",
                     "started_at": _now_iso(),
+                    "expires_at": int(time.time()) + 30 * 86400,
                 }
             )
 

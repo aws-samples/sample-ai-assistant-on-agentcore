@@ -956,7 +956,7 @@ function TaskForm({ open, onClose, onSave, editJob }) {
           )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
           <Button onClick={handleSubmit} disabled={saving}>
@@ -976,6 +976,8 @@ export default function ScheduledTasksPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editJob, setEditJob] = useState(null);
+  const [deleteJobId, setDeleteJobId] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   const loadJobs = useCallback(async () => {
     try {
@@ -992,15 +994,23 @@ export default function ScheduledTasksPage() {
     loadJobs();
   }, [loadJobs]);
 
-  const handleDelete = async (jobId, e) => {
+  const handleDeleteClick = (jobId, e) => {
     e.stopPropagation();
-    if (!confirm("Delete this scheduled task?")) return;
+    setDeleteJobId(jobId);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteJobId) return;
+    setDeleting(true);
     try {
-      await deleteScheduledTask(jobId);
+      await deleteScheduledTask(deleteJobId);
       toast.success("Scheduled task deleted");
       loadJobs();
     } catch {
       toast.error("Failed to delete scheduled task");
+    } finally {
+      setDeleting(false);
+      setDeleteJobId(null);
     }
   };
 
@@ -1085,7 +1095,7 @@ export default function ScheduledTasksPage() {
                 variant="ghost"
                 size="icon"
                 title="Delete"
-                onClick={(e) => handleDelete(job.job_id, e)}
+                onClick={(e) => handleDeleteClick(job.job_id, e)}
               >
                 <Trash2 size={14} />
               </Button>
@@ -1152,6 +1162,26 @@ export default function ScheduledTasksPage() {
         onSave={loadJobs}
         editJob={editJob}
       />
+
+      <Dialog open={!!deleteJobId} onOpenChange={(v) => !v && setDeleteJobId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete scheduled task</DialogTitle>
+            <DialogDescription>
+              This will permanently delete this task and its schedule. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDeleteJobId(null)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteConfirm} disabled={deleting}>
+              {deleting && <Loader2 className="animate-spin mr-1" size={14} />}
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

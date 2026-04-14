@@ -496,6 +496,7 @@ resource "aws_iam_role_policy" "core_services_task_dynamodb_policy" {
           "dynamodb:PutItem",
           "dynamodb:UpdateItem",
           "dynamodb:DeleteItem",
+          "dynamodb:BatchWriteItem",
           "dynamodb:Query",
           "dynamodb:Scan"
         ]
