@@ -22,7 +22,7 @@ import { TaskForm } from "./components/TaskForm";
 import { TaskDetail } from "./components/TaskDetail";
 import "./ScheduledTasksPage.css";
 
-function StatusBadge({ status }) {
+export function StatusBadge({ status }) {
   return <span className={`st-status ${status}`}>{status}</span>;
 }
 
@@ -41,7 +41,7 @@ export default function ScheduledTasksPage() {
       const data = await listScheduledTasks();
       setJobs(data.jobs || []);
     } catch (err) {
-      console.error('Failed to load scheduled tasks:', err);
+      console.error("Failed to load scheduled tasks:", err);
       toast.error("Failed to load scheduled tasks");
     } finally {
       setLoading(false);
@@ -63,9 +63,9 @@ export default function ScheduledTasksPage() {
     try {
       await deleteScheduledTask(deleteJobId);
       toast.success("Scheduled task deleted");
-      loadJobs();
+      setJobs((prev) => prev.filter((j) => j.job_id !== deleteJobId));
     } catch (err) {
-      console.error('Failed to delete scheduled task:', err);
+      console.error("Failed to delete scheduled task:", err);
       toast.error("Failed to delete scheduled task: " + (err.message || "Unknown error"));
     } finally {
       setDeleting(false);
@@ -76,10 +76,11 @@ export default function ScheduledTasksPage() {
   const handleToggle = async (job, e) => {
     e.stopPropagation();
     try {
-      await toggleScheduledTask(job.job_id, job.status !== "enabled");
-      loadJobs();
+      const result = await toggleScheduledTask(job.job_id, job.status !== "enabled");
+      const updated = result.job;
+      setJobs((prev) => prev.map((j) => (j.job_id === job.job_id ? { ...j, ...updated } : j)));
     } catch (err) {
-      console.error('Failed to toggle scheduled task:', err);
+      console.error("Failed to toggle scheduled task:", err);
       toast.error("Failed to toggle scheduled task: " + (err.message || "Unknown error"));
     }
   };

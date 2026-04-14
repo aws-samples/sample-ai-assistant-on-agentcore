@@ -49,6 +49,10 @@ dynamodb = boto3.resource("dynamodb", region_name=REGION)
 jobs_table = dynamodb.Table(TASK_JOBS_TABLE)
 executions_table = dynamodb.Table(TASK_EXECUTIONS_TABLE)
 
+_STATUS_ENABLED = "enabled"
+_STATUS_RUNNING = "running"
+_STATUS_FAILED = "failed"
+
 _cached_token = {"access_token": None, "expires_at": 0}
 
 
@@ -134,7 +138,9 @@ def _invoke_runtime_async(
     except HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")[:1000]
         logger.error("Runtime invocation failed: HTTP %s — %s", e.code, body)
-        raise RuntimeError(f"Failed to invoke runtime: HTTP {e.code} — {body[:200]}") from e
+        raise RuntimeError(
+            f"Failed to invoke runtime: HTTP {e.code} — {body[:200]}"
+        ) from e
     except URLError as e:
         logger.error("Runtime invocation failed: %s", e.reason)
         raise RuntimeError(f"Failed to invoke runtime: {e.reason}") from e
@@ -154,11 +160,12 @@ def handler(event, context):
             job_id = body.get("job_id")
             user_id = body.get("user_id")
             if not job_id or not user_id:
-                logger.error("Invalid task message — missing job_id or user_id: %s", body)
+                logger.error(
+                    "Invalid task message — missing job_id or user_id: %s", body
+                )
                 continue
             logger.info("Executing scheduled task %s for user %s", job_id, user_id)
 
-            # 1. Read job definition
             job = jobs_table.get_item(Key={"user_id": user_id, "job_id": job_id}).get(
                 "Item"
             )
@@ -166,23 +173,21 @@ def handler(event, context):
                 logger.warning("Job %s not found, skipping", job_id)
                 continue
 
-            if job.get("status") != "enabled":
+            if job.get("status") != _STATUS_ENABLED:
                 logger.info("Job %s status=%s, skipping", job_id, job.get("status"))
                 continue
 
-            # 2. Create execution record (status=running) with 30-day TTL
-            executions_table.put_item(
+            executions_table.put_item(  # 30-day TTL
                 Item={
                     "job_id": job_id,
                     "execution_id": execution_id,
                     "user_id": user_id,
-                    "status": "running",
+                    "status": _STATUS_RUNNING,
                     "started_at": _now_iso(),
                     "expires_at": int(time.time()) + 30 * 86400,
                 }
             )
 
-            # 3. Fire async invocation — Sparky handles the rest
             _invoke_runtime_async(
                 prompt=job.get("prompt", ""),
                 session_id=execution_id,
@@ -205,7 +210,7 @@ def handler(event, context):
                         UpdateExpression="SET #s = :s, finished_at = :f, error_message = :e",
                         ExpressionAttributeNames={"#s": "status"},
                         ExpressionAttributeValues={
-                            ":s": "failed",
+                            ":s": _STATUS_FAILED,
                             ":f": _now_iso(),
                             ":e": str(e)[:2000],
                         },

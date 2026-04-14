@@ -9,7 +9,6 @@ filename-uniqueness constraint (project_id-filename-index GSI).
 import asyncio
 import os
 import uuid
-from decimal import Decimal
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -17,7 +16,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 from config import PROJECT_FILES_TABLE, PROJECT_CANVASES_TABLE, PROJECTS_TABLE, REGION
-from utils import logger
+from utils import fix_decimals as _fix_decimals, logger
 
 USER_ID_INDEX = "user_id-created_at-index"
 FILENAME_INDEX = "project_id-filename-index"
@@ -43,17 +42,6 @@ def file_category(filename: str) -> str:
     """Return 'data' for structured files, 'document' for KB-indexable files."""
     ext = os.path.splitext(filename.lower())[1]
     return "data" if ext in STRUCTURED_EXTENSIONS else "document"
-
-
-def _fix_decimals(obj: Any) -> Any:
-    """Recursively convert DynamoDB Decimal values to int or float."""
-    if isinstance(obj, Decimal):
-        return int(obj) if obj % 1 == 0 else float(obj)
-    if isinstance(obj, dict):
-        return {k: _fix_decimals(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [_fix_decimals(v) for v in obj]
-    return obj
 
 
 class ProjectService:

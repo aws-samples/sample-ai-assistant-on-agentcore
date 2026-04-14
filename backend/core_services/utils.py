@@ -2,7 +2,8 @@ import json
 import logging
 import traceback
 import base64
-from typing import Dict, Any
+from decimal import Decimal
+from typing import Any, Dict
 from fastapi.responses import JSONResponse
 
 # Configure logger
@@ -69,6 +70,17 @@ def decode_jwt_token(token: str) -> Dict[str, Any]:
     # Decode base64url to JSON
     decoded_bytes = base64.urlsafe_b64decode(payload)
     return json.loads(decoded_bytes.decode("utf-8"))
+
+
+def fix_decimals(obj: Any) -> Any:
+    """Recursively convert DynamoDB Decimal values to int or float."""
+    if isinstance(obj, Decimal):
+        return int(obj) if obj % 1 == 0 else float(obj)
+    if isinstance(obj, dict):
+        return {k: fix_decimals(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [fix_decimals(v) for v in obj]
+    return obj
 
 
 def get_user_id_from_token(authorization_header: str) -> str:

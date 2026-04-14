@@ -1,14 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  ChevronLeft,
-  ChevronDown,
-  ChevronUp,
-  Loader2,
-  Pencil,
-  Play,
-  Eye,
-} from "lucide-react";
+import { ChevronLeft, ChevronDown, ChevronUp, Loader2, Pencil, Play, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,13 +10,10 @@ import {
   triggerScheduledTask,
 } from "@/services/scheduledTasksService";
 import { convertExecutionToChat } from "@/components/Agent/context/api";
+import { StatusBadge } from "../ScheduledTasksPage";
 import { DataTable, SortableHeader } from "./DataTable";
 import { ExecutionOutputSheet } from "./ExecutionOutputSheet";
 import { TaskForm } from "./TaskForm";
-
-function StatusBadge({ status }) {
-  return <span className={`st-status ${status}`}>{status}</span>;
-}
 
 function formatDuration(exec) {
   const started = exec.started_at ? new Date(exec.started_at) : null;
@@ -105,7 +94,7 @@ export function TaskDetail({ jobId, onBack }) {
       setExecutions(data.executions || []);
       setExecCursor(data.cursor || null);
     } catch (err) {
-      console.error('Failed to load executions:', err);
+      console.error("Failed to load executions:", err);
     }
   }, [jobId]);
 
@@ -117,7 +106,7 @@ export function TaskDetail({ jobId, onBack }) {
       setExecutions((prev) => [...prev, ...(data.executions || [])]);
       setExecCursor(data.cursor || null);
     } catch (err) {
-      console.error('Failed to load executions:', err);
+      console.error("Failed to load executions:", err);
     }
     setLoadingMore(false);
   };
@@ -133,13 +122,13 @@ export function TaskDetail({ jobId, onBack }) {
       .finally(() => setLoading(false));
   }, [jobId]);
 
-  // Auto-poll while any execution is running
+  const hasRunning = useMemo(() => executions.some((e) => e.status === "running"), [executions]);
+
   useEffect(() => {
-    const hasRunning = executions.some((e) => e.status === "running");
     if (!hasRunning) return;
     const interval = setInterval(loadExecutions, 5000);
     return () => clearInterval(interval);
-  }, [executions, loadExecutions]);
+  }, [hasRunning, loadExecutions]);
 
   const handleTrigger = async () => {
     setTriggering(true);
@@ -161,7 +150,7 @@ export function TaskDetail({ jobId, onBack }) {
       setTimeout(loadExecutions, 2000);
       setTimeout(loadExecutions, 5000);
     } catch (err) {
-      console.error('Failed to trigger task:', err);
+      console.error("Failed to trigger task:", err);
       toast.error("Failed to trigger task");
     } finally {
       setTriggering(false);
@@ -184,7 +173,7 @@ export function TaskDetail({ jobId, onBack }) {
       );
       navigate(`/chat/${newSessionId}`);
     } catch (err) {
-      console.error('Failed to convert execution to chat:', err);
+      console.error("Failed to convert execution to chat:", err);
       toast.error("Failed to convert execution to chat");
     } finally {
       setConverting(null);

@@ -20,10 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  createScheduledTask,
-  updateScheduledTask,
-} from "@/services/scheduledTasksService";
+import { createScheduledTask, updateScheduledTask } from "@/services/scheduledTasksService";
 import {
   DAYS_OF_WEEK,
   TIMEZONES,
@@ -109,7 +106,12 @@ export function TaskForm({ open, onClose, onSave, editJob }) {
         });
         toast.success("Scheduled task updated");
       } else {
-        await createScheduledTask({ name: s.name, prompt: s.prompt, schedule_expression: schedule, timezone: s.timezone });
+        await createScheduledTask({
+          name: s.name,
+          prompt: s.prompt,
+          schedule_expression: schedule,
+          timezone: s.timezone,
+        });
         toast.success("Scheduled task created");
       }
       onSave();

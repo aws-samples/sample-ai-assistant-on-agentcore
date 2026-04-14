@@ -27,8 +27,8 @@ export function ExecutionOutputSheet({ execution, onClose, onConvertToChat, conv
     getTaskExecution(execution.job_id, execution.execution_id)
       .then((data) => setOutput(data.execution?.output || "No output"))
       .catch((err) => {
-        console.error('Failed to load execution output:', err);
-        setOutput('Failed to load output: ' + (err.message || 'Unknown error'));
+        console.error("Failed to load execution output:", err);
+        setOutput("Failed to load output: " + (err.message || "Unknown error"));
       })
       .finally(() => setLoading(false));
   }, [execution]);
@@ -40,6 +40,8 @@ export function ExecutionOutputSheet({ execution, onClose, onConvertToChat, conv
       setLoading(true);
     }
   };
+
+  const cleanupRef = useRef(null);
 
   const onDragStart = useCallback((e) => {
     e.preventDefault();
@@ -57,17 +59,23 @@ export function ExecutionOutputSheet({ execution, onClose, onConvertToChat, conv
       setSheetWidth(newWidth);
     };
 
-    const onMouseUp = () => {
+    const cleanup = () => {
       isDragging.current = false;
       setDragging(false);
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
       document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseup", onMouseUp);
+      document.removeEventListener("mouseup", cleanup);
+      cleanupRef.current = null;
     };
 
+    cleanupRef.current = cleanup;
     document.addEventListener("mousemove", onMouseMove);
-    document.addEventListener("mouseup", onMouseUp);
+    document.addEventListener("mouseup", cleanup);
+  }, []);
+
+  useEffect(() => {
+    return () => cleanupRef.current?.();
   }, []);
 
   return (

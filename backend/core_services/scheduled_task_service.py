@@ -11,7 +11,6 @@ import os
 import re
 import uuid
 from datetime import datetime, timezone
-from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from zoneinfo import available_timezones
 
@@ -20,7 +19,7 @@ from botocore.exceptions import ClientError
 
 from config import REGION
 from task_models import ExecutionStatus, JobStatus
-from utils import logger
+from utils import fix_decimals as _fix_decimals, logger
 
 TASK_JOBS_TABLE = os.environ.get("TASK_JOBS_TABLE")
 TASK_EXECUTIONS_TABLE = os.environ.get("TASK_EXECUTIONS_TABLE")
@@ -63,20 +62,6 @@ def _validate_prompt(prompt: str) -> None:
         raise ValueError(f"Prompt exceeds maximum size of {MAX_PROMPT_SIZE} characters")
 
 
-def _fix_decimals(obj: Any) -> Any:
-    if isinstance(obj, Decimal):
-        return int(obj) if obj % 1 == 0 else float(obj)
-    if isinstance(obj, dict):
-        return {k: _fix_decimals(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [_fix_decimals(v) for v in obj]
-    return obj
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
 class ScheduledTaskService:
     def __init__(self):
         self.dynamodb = boto3.resource("dynamodb", region_name=REGION)
@@ -90,23 +75,21 @@ class ScheduledTaskService:
         )
         self.scheduler = boto3.client("scheduler", region_name=REGION)
         self.sqs = boto3.client("sqs", region_name=REGION)
+        self.s3 = boto3.client("s3", region_name=REGION)
         self._queue_arn: Optional[str] = None
-        if not _missing:
-            self._ensure_schedule_group()
+        self._schedule_group_ensured = bool(_missing)
 
-    async def _run_sync(self, fn):
-        """Run a synchronous function in the default executor."""
-        return await asyncio.get_running_loop().run_in_executor(None, fn)
-
-    def _ensure_schedule_group(self):
-        """Create the schedule group if it doesn't exist."""
+    async def _ensure_schedule_group(self):
+        """Create the schedule group if it doesn't already exist (lazy, once)."""
+        if self._schedule_group_ensured:
+            return
         try:
-            self.scheduler.get_schedule_group(Name=SCHEDULE_GROUP)
-        except self.scheduler.exceptions.ResourceNotFoundException:
-            try:
-                self.scheduler.create_schedule_group(Name=SCHEDULE_GROUP)
-            except self.scheduler.exceptions.ConflictException:
-                pass  # Already exists — race condition with another instance
+            await asyncio.to_thread(
+                self.scheduler.create_schedule_group, Name=SCHEDULE_GROUP
+            )
+        except self.scheduler.exceptions.ConflictException:
+            pass  # Already exists
+        self._schedule_group_ensured = True
 
     def _schedule_name(self, job_id: str) -> str:
         return f"{ENV_PREFIX}-task-{job_id}"
@@ -114,17 +97,13 @@ class ScheduledTaskService:
     async def _get_queue_arn(self) -> str:
         """Get the SQS queue ARN, caching after first lookup."""
         if not self._queue_arn:
-            resp = await self._run_sync(
-                lambda: self.sqs.get_queue_attributes(
-                    QueueUrl=TASK_QUEUE_URL, AttributeNames=["QueueArn"]
-                )
+            resp = await asyncio.to_thread(
+                self.sqs.get_queue_attributes,
+                QueueUrl=TASK_QUEUE_URL,
+                AttributeNames=["QueueArn"],
             )
             self._queue_arn = resp["Attributes"]["QueueArn"]
         return self._queue_arn
-
-    # =========================================================================
-    # Jobs CRUD
-    # =========================================================================
 
     async def create_job(
         self,
@@ -140,7 +119,7 @@ class ScheduledTaskService:
         _validate_prompt(prompt)
 
         job_id = str(uuid.uuid4())
-        now = _now_iso()
+        now = datetime.now(timezone.utc).isoformat()
         item = {
             "user_id": user_id,
             "job_id": job_id,
@@ -154,18 +133,16 @@ class ScheduledTaskService:
             "updated_at": now,
         }
 
-        await self._run_sync(lambda: self.jobs_table.put_item(Item=item))
+        await asyncio.to_thread(self.jobs_table.put_item, Item=item)
 
         try:
             await self._upsert_schedule(
                 job_id, user_id, schedule_expression, timezone_str
             )
         except Exception:
-            # Compensate: remove orphaned DynamoDB item
-            await self._run_sync(
-                lambda: self.jobs_table.delete_item(
-                    Key={"user_id": user_id, "job_id": job_id}
-                )
+            await asyncio.to_thread(
+                self.jobs_table.delete_item,
+                Key={"user_id": user_id, "job_id": job_id},
             )
             raise
 
@@ -183,7 +160,7 @@ class ScheduledTaskService:
         if cursor:
             kwargs["ExclusiveStartKey"] = cursor
 
-        resp = await self._run_sync(lambda: self.jobs_table.query(**kwargs))
+        resp = await asyncio.to_thread(lambda: self.jobs_table.query(**kwargs))
 
         items = [_fix_decimals(i) for i in resp.get("Items", [])]
         result: Dict[str, Any] = {"jobs": items}
@@ -192,10 +169,9 @@ class ScheduledTaskService:
         return result
 
     async def get_job(self, user_id: str, job_id: str) -> Optional[Dict[str, Any]]:
-        resp = await self._run_sync(
-            lambda: self.jobs_table.get_item(
-                Key={"user_id": user_id, "job_id": job_id}
-            )
+        resp = await asyncio.to_thread(
+            self.jobs_table.get_item,
+            Key={"user_id": user_id, "job_id": job_id},
         )
         item = resp.get("Item")
         return _fix_decimals(item) if item else None
@@ -210,10 +186,6 @@ class ScheduledTaskService:
         timezone_str: Optional[str] = None,
         skills: Optional[List[str]] = None,
     ) -> Optional[Dict[str, Any]]:
-        job = await self.get_job(user_id, job_id)
-        if not job:
-            return None
-
         if schedule_expression is not None:
             _validate_schedule_expression(schedule_expression)
         if timezone_str is not None:
@@ -223,7 +195,7 @@ class ScheduledTaskService:
 
         updates = []
         attr_names: Dict[str, str] = {}
-        attr_values: Dict[str, Any] = {":now": _now_iso()}
+        attr_values: Dict[str, Any] = {":now": datetime.now(timezone.utc).isoformat()}
         updates.append("updated_at = :now")
 
         if name is not None:
@@ -248,86 +220,94 @@ class ScheduledTaskService:
             "Key": {"user_id": user_id, "job_id": job_id},
             "UpdateExpression": "SET " + ", ".join(updates),
             "ExpressionAttributeValues": attr_values,
+            "ConditionExpression": "attribute_exists(user_id)",
             "ReturnValues": "ALL_NEW",
         }
         if attr_names:
             kwargs["ExpressionAttributeNames"] = attr_names
 
-        resp = await self._run_sync(lambda: self.jobs_table.update_item(**kwargs))
+        try:
+            resp = await asyncio.to_thread(
+                lambda: self.jobs_table.update_item(**kwargs)
+            )
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                return None
+            raise
         updated = _fix_decimals(resp.get("Attributes", {}))
 
-        # Update schedule if expression or timezone changed and job is enabled
         if schedule_expression is not None or timezone_str is not None:
-            eff_sched = schedule_expression or job.get("schedule_expression", "")
-            eff_tz = timezone_str or job.get("timezone", "UTC")
-            if job.get("status") == JobStatus.ENABLED:
+            eff_sched = schedule_expression or updated.get("schedule_expression", "")
+            eff_tz = timezone_str or updated.get("timezone", "UTC")
+            if updated.get("status") == JobStatus.ENABLED:
                 await self._upsert_schedule(job_id, user_id, eff_sched, eff_tz)
 
         return updated
 
     async def delete_job(self, user_id: str, job_id: str) -> bool:
-        job = await self.get_job(user_id, job_id)
-        if not job:
-            return False
-
-        await self._run_sync(
-            lambda: self.jobs_table.update_item(
-                Key={"user_id": user_id, "job_id": job_id},
-                UpdateExpression="SET #s = :s, updated_at = :now",
-                ExpressionAttributeNames={"#s": "status"},
-                ExpressionAttributeValues={
-                    ":s": JobStatus.DELETED,
-                    ":now": _now_iso(),
-                },
+        try:
+            await asyncio.to_thread(
+                lambda: self.jobs_table.update_item(
+                    Key={"user_id": user_id, "job_id": job_id},
+                    UpdateExpression="SET #s = :s, updated_at = :now",
+                    ExpressionAttributeNames={"#s": "status"},
+                    ExpressionAttributeValues={
+                        ":s": JobStatus.DELETED,
+                        ":now": datetime.now(timezone.utc).isoformat(),
+                    },
+                    ConditionExpression="attribute_exists(user_id)",
+                )
             )
-        )
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                return False
+            raise
         await self._delete_schedule(job_id)
         await self._cleanup_executions(job_id)
         return True
 
     async def _cleanup_executions(self, job_id: str) -> None:
-        """Delete all execution records for a job. LangGraph thread checkpoints auto-expire via their own TTL."""
+        """Delete all execution records for a job in streaming batches."""
         try:
-            execution_ids: list[str] = []
+            deleted = 0
             kwargs: Dict[str, Any] = {
                 "KeyConditionExpression": "job_id = :jid",
                 "ExpressionAttributeValues": {":jid": job_id},
                 "ProjectionExpression": "execution_id",
             }
             while True:
-                resp = await self._run_sync(
+                resp = await asyncio.to_thread(
                     lambda: self.executions_table.query(**kwargs)
                 )
-                for item in resp.get("Items", []):
-                    execution_ids.append(item["execution_id"])
+                batch_ids = [item["execution_id"] for item in resp.get("Items", [])]
+
+                for i in range(0, len(batch_ids), 25):
+                    chunk = batch_ids[i : i + 25]
+                    await asyncio.to_thread(
+                        lambda chunk=chunk: self.dynamodb.batch_write_item(
+                            RequestItems={
+                                self.executions_table.name: [
+                                    {
+                                        "DeleteRequest": {
+                                            "Key": {
+                                                "job_id": job_id,
+                                                "execution_id": eid,
+                                            }
+                                        }
+                                    }
+                                    for eid in chunk
+                                ]
+                            }
+                        )
+                    )
+                    deleted += len(chunk)
+
                 if "LastEvaluatedKey" not in resp:
                     break
                 kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
 
-            if not execution_ids:
-                return
-
-            # Batch-delete execution records (25 per batch, DynamoDB limit)
-            for i in range(0, len(execution_ids), 25):
-                batch = execution_ids[i : i + 25]
-                await self._run_sync(
-                    lambda batch=batch: self.dynamodb.batch_write_item(
-                        RequestItems={
-                            self.executions_table.name: [
-                                {
-                                    "DeleteRequest": {
-                                        "Key": {"job_id": job_id, "execution_id": eid}
-                                    }
-                                }
-                                for eid in batch
-                            ]
-                        }
-                    )
-                )
-
-            logger.info(
-                "Cleaned up %d executions for job %s", len(execution_ids), job_id
-            )
+            if deleted:
+                logger.info("Cleaned up %d executions for job %s", deleted, job_id)
         except Exception:
             logger.exception("Failed to cleanup executions for job %s", job_id)
 
@@ -343,37 +323,28 @@ class ScheduledTaskService:
 
         new_status = JobStatus.ENABLED if enabled else JobStatus.DISABLED
 
-        resp = await self._run_sync(
+        resp = await asyncio.to_thread(
             lambda: self.jobs_table.update_item(
                 Key={"user_id": user_id, "job_id": job_id},
                 UpdateExpression="SET #s = :s, updated_at = :now",
                 ExpressionAttributeNames={"#s": "status"},
-                ExpressionAttributeValues={":s": new_status, ":now": _now_iso()},
+                ExpressionAttributeValues={
+                    ":s": new_status,
+                    ":now": datetime.now(timezone.utc).isoformat(),
+                },
                 ReturnValues="ALL_NEW",
             )
         )
 
-        if enabled:
-            await self._upsert_schedule(
-                job_id,
-                user_id,
-                job["schedule_expression"],
-                job.get("timezone", "UTC"),
-            )
-        else:
-            await self._upsert_schedule(
-                job_id,
-                user_id,
-                job["schedule_expression"],
-                job.get("timezone", "UTC"),
-                enabled=False,
-            )
+        await self._upsert_schedule(
+            job_id,
+            user_id,
+            job["schedule_expression"],
+            job.get("timezone", "UTC"),
+            enabled=enabled,
+        )
 
         return _fix_decimals(resp.get("Attributes", {}))
-
-    # =========================================================================
-    # Executions
-    # =========================================================================
 
     async def trigger_job(self, user_id: str, job_id: str) -> bool:
         """Send an SQS message to trigger immediate execution of a job."""
@@ -381,11 +352,10 @@ class ScheduledTaskService:
         if not job:
             return False
 
-        await self._run_sync(
-            lambda: self.sqs.send_message(
-                QueueUrl=TASK_QUEUE_URL,
-                MessageBody=json.dumps({"job_id": job_id, "user_id": user_id}),
-            )
+        await asyncio.to_thread(
+            self.sqs.send_message,
+            QueueUrl=TASK_QUEUE_URL,
+            MessageBody=json.dumps({"job_id": job_id, "user_id": user_id}),
         )
         return True
 
@@ -396,7 +366,6 @@ class ScheduledTaskService:
         limit: int = 20,
         cursor: Optional[Dict] = None,
     ) -> Dict[str, Any]:
-        # Verify job ownership
         job = await self.get_job(user_id, job_id)
         if not job:
             return {"executions": []}
@@ -411,7 +380,7 @@ class ScheduledTaskService:
         if cursor:
             kwargs["ExclusiveStartKey"] = cursor
 
-        resp = await self._run_sync(lambda: self.executions_table.query(**kwargs))
+        resp = await asyncio.to_thread(lambda: self.executions_table.query(**kwargs))
 
         items = [_fix_decimals(i) for i in resp.get("Items", [])]
         result: Dict[str, Any] = {"executions": items}
@@ -422,15 +391,13 @@ class ScheduledTaskService:
     async def get_execution(
         self, job_id: str, execution_id: str, user_id: str
     ) -> Optional[Dict[str, Any]]:
-        # Verify job ownership
         job = await self.get_job(user_id, job_id)
         if not job:
             return None
 
-        resp = await self._run_sync(
-            lambda: self.executions_table.get_item(
-                Key={"job_id": job_id, "execution_id": execution_id}
-            )
+        resp = await asyncio.to_thread(
+            self.executions_table.get_item,
+            Key={"job_id": job_id, "execution_id": execution_id},
         )
         item = resp.get("Item")
         if not item:
@@ -438,14 +405,12 @@ class ScheduledTaskService:
 
         item = _fix_decimals(item)
 
-        # Fetch output from S3 if offloaded
         s3_key = item.get("output_s3_key")
         if s3_key:
             try:
-                s3 = boto3.client("s3", region_name=REGION)
                 s3_bucket = os.environ.get("S3_BUCKET")
-                obj = await self._run_sync(
-                    lambda: s3.get_object(Bucket=s3_bucket, Key=s3_key)
+                obj = await asyncio.to_thread(
+                    self.s3.get_object, Bucket=s3_bucket, Key=s3_key
                 )
                 item["output"] = obj["Body"].read().decode("utf-8")
             except Exception as e:
@@ -457,10 +422,6 @@ class ScheduledTaskService:
 
         return item
 
-    # =========================================================================
-    # EventBridge Scheduler — consolidated
-    # =========================================================================
-
     async def _upsert_schedule(
         self,
         job_id: str,
@@ -470,6 +431,7 @@ class ScheduledTaskService:
         enabled: bool = True,
     ):
         """Create or update an EventBridge schedule. Raises on failure."""
+        await self._ensure_schedule_group()
         queue_arn = await self._get_queue_arn()
         common = dict(
             Name=self._schedule_name(job_id),
@@ -485,16 +447,16 @@ class ScheduledTaskService:
             State="ENABLED" if enabled else "DISABLED",
         )
         try:
-            await self._run_sync(lambda: self.scheduler.update_schedule(**common))
+            await asyncio.to_thread(lambda: self.scheduler.update_schedule(**common))
         except self.scheduler.exceptions.ResourceNotFoundException:
-            await self._run_sync(lambda: self.scheduler.create_schedule(**common))
+            await asyncio.to_thread(lambda: self.scheduler.create_schedule(**common))
 
     async def _delete_schedule(self, job_id: str):
         try:
-            await self._run_sync(
-                lambda: self.scheduler.delete_schedule(
-                    Name=self._schedule_name(job_id), GroupName=SCHEDULE_GROUP
-                )
+            await asyncio.to_thread(
+                self.scheduler.delete_schedule,
+                Name=self._schedule_name(job_id),
+                GroupName=SCHEDULE_GROUP,
             )
         except self.scheduler.exceptions.ResourceNotFoundException:
             pass

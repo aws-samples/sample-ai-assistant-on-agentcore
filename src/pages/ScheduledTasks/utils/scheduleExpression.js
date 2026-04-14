@@ -33,7 +33,7 @@ export function detectTimezone() {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (TIMEZONES.includes(tz)) return tz;
   } catch (err) {
-    console.error('Timezone detection failed:', err);
+    console.error("Timezone detection failed:", err);
   }
   return "UTC";
 }

@@ -24,7 +24,9 @@ async function coreRequest(input) {
     body: JSON.stringify({ input }),
   });
   if (!response.ok) {
-    const err = await response.json().catch(() => ({ error: `Request failed: ${response.status}` }));
+    const err = await response
+      .json()
+      .catch(() => ({ error: `Request failed: ${response.status}` }));
     throw new Error(err.error || `Request failed: ${response.status}`);
   }
   return response.json();

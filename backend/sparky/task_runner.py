@@ -15,6 +15,9 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from agent_manager import agent_manager
 from utils import logger
 
+_STATUS_COMPLETED = "completed"
+_STATUS_FAILED = "failed"
+
 active_tasks: set[str] = set()
 agent_ready = asyncio.Event()  # set once lifespan init completes
 
@@ -46,10 +49,16 @@ def _resolve_citations(output: str, messages) -> str:
             continue
         urls = []
         try:
-            parsed = json.loads(msg.content) if isinstance(msg.content, str) else msg.content
+            parsed = (
+                json.loads(msg.content) if isinstance(msg.content, str) else msg.content
+            )
             items = parsed if isinstance(parsed, list) else parsed.get("results", [])
             for item in items:
-                url = item if isinstance(item, str) else (item.get("url", "") or item.get("link", ""))
+                url = (
+                    item
+                    if isinstance(item, str)
+                    else (item.get("url", "") or item.get("link", ""))
+                )
                 if url:
                     urls.append(url)
         except Exception:
@@ -69,18 +78,29 @@ def _resolve_citations(output: str, messages) -> str:
                 if url not in urls:
                     urls.append(url)
         if urls:
-            return '<cite data-urls="{}"></cite>'.format(",".join(u.replace('"', "&quot;") for u in urls))
+            return '<cite data-urls="{}"></cite>'.format(
+                ",".join(u.replace('"', "&quot;") for u in urls)
+            )
         return ""
 
-    output = re.sub(r"<cite\s+urls=\[([^\]]*)\]\s*>(?:</cite>)?", _repl, output, flags=re.IGNORECASE)
+    output = re.sub(
+        r"<cite\s+urls=\[([^\]]*)\]\s*>(?:</cite>)?", _repl, output, flags=re.IGNORECASE
+    )
 
     def _repl_links(m):
         url_matches = re.findall(r"""["']([^"']+)["']""", m.group(1))
         if url_matches:
-            return '<cite data-urls="{}"></cite>'.format(",".join(u.replace('"', "&quot;") for u in url_matches))
+            return '<cite data-urls="{}"></cite>'.format(
+                ",".join(u.replace('"', "&quot;") for u in url_matches)
+            )
         return ""
 
-    output = re.sub(r"""<cite\s+links=\[((?:"[^"]*"|'[^']*'|,|\s)*)\]\s*>(?:</cite>)?""", _repl_links, output, flags=re.IGNORECASE)
+    output = re.sub(
+        r"""<cite\s+links=\[((?:"[^"]*"|'[^']*'|,|\s)*)\]\s*>(?:</cite>)?""",
+        _repl_links,
+        output,
+        flags=re.IGNORECASE,
+    )
     return output
 
 
@@ -105,18 +125,12 @@ async def run_scheduled_task(
     table = dynamodb.Table(table_name)
 
     try:
-        # Session registration disabled to reduce chat history noise.
-        # Task executions are accessible via the Scheduled Tasks UI, and
-        # "Continue in chat" converts an execution into a full session on demand.
-        # from chat_history_service import chat_history_service
-        # await chat_history_service.create_session_record(session_id, user_id)
-
-        # Load user tools then build an agent for headless execution.
         await agent_manager.build_tools_with_reconciliation(user_id)
 
         # Filter out UI-only tools that don't apply to headless tasks
         agent_manager.cached_tools = [
-            t for t in agent_manager.cached_tools
+            t
+            for t in agent_manager.cached_tools
             if getattr(t, "name", "") not in _TASK_EXCLUDED_TOOLS
         ]
         agent_manager.cached_agent = None
@@ -131,11 +145,19 @@ async def run_scheduled_task(
         )
 
         result = await agent.ainvoke(
-            {"messages": [
-                HumanMessage(content=[{"type": "text", "text": prompt}]),
-                HumanMessage(content=[{"type": "text", "text": task_instruction}], metadata={"sparky:hidden": True}),
-            ]},
-            {"configurable": {"thread_id": session_id, "actor_id": user_id}, "recursion_limit": 200},
+            {
+                "messages": [
+                    HumanMessage(content=[{"type": "text", "text": prompt}]),
+                    HumanMessage(
+                        content=[{"type": "text", "text": task_instruction}],
+                        metadata={"sparky:hidden": True},
+                    ),
+                ]
+            },
+            {
+                "configurable": {"thread_id": session_id, "actor_id": user_id},
+                "recursion_limit": 200,
+            },
         )
 
         output = ""
@@ -162,7 +184,7 @@ async def run_scheduled_task(
         now = datetime.now(timezone.utc).isoformat()
         update_expr = "SET #s = :s, finished_at = :f"
         attr_names = {"#s": "status"}
-        attr_values = {":s": "completed", ":f": now}
+        attr_values = {":s": _STATUS_COMPLETED, ":f": now}
 
         if output:
             if len(output.encode("utf-8")) > _MAX_DYNAMO_BYTES:
@@ -193,7 +215,11 @@ async def run_scheduled_task(
                 Key={"job_id": job_id, "execution_id": execution_id},
                 UpdateExpression="SET #s = :s, finished_at = :f, error_message = :e",
                 ExpressionAttributeNames={"#s": "status"},
-                ExpressionAttributeValues={":s": "failed", ":f": now, ":e": str(e)[:2000]},
+                ExpressionAttributeValues={
+                    ":s": _STATUS_FAILED,
+                    ":f": now,
+                    ":e": str(e)[:2000],
+                },
             )
         except Exception:
             logger.exception("Failed to record task failure for %s", execution_id)

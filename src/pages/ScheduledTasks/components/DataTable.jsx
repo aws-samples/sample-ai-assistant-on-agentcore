@@ -35,7 +35,13 @@ export function SortableHeader({ column, children }) {
   );
 }
 
-export function DataTable({ columns, data, onRowClick, hoverRows = true, emptyMessage = "No results." }) {
+export function DataTable({
+  columns,
+  data,
+  onRowClick,
+  hoverRows = true,
+  emptyMessage = "No results.",
+}) {
   const [sorting, setSorting] = useState([]);
 
   const table = useReactTable({
