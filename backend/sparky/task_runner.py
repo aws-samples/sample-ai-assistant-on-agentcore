@@ -10,7 +10,7 @@ import re
 
 import boto3
 from datetime import datetime, timezone
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from agent_manager import agent_manager
 from utils import logger
@@ -124,15 +124,17 @@ async def run_scheduled_task(
 
         agent = await agent_manager.get_agent(user_id=user_id)
 
-        task_prompt = (
-            f"{prompt}\n\n"
+        task_instruction = (
             "[TASK INSTRUCTION: This is an automated scheduled task. "
             "Respond with the final output only — no preamble, no planning narration, "
             "no phrases like 'Let me' or 'I'll now'. Start directly with the content.]"
         )
 
         result = await agent.ainvoke(
-            {"messages": [{"role": "user", "content": [{"type": "text", "text": task_prompt}]}]},
+            {"messages": [
+                HumanMessage(content=[{"type": "text", "text": prompt}]),
+                HumanMessage(content=[{"type": "text", "text": task_instruction}], metadata={"sparky:hidden": True}),
+            ]},
             {"configurable": {"thread_id": session_id, "actor_id": user_id}, "recursion_limit": 200},
         )
 
