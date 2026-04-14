@@ -43,15 +43,15 @@ def _get_user_id_from_config(config: RunnableConfig) -> str:
     return "unknown"
 
 
-def create_tavily_search_tool(api_key: str) -> TavilySearch:
+def create_tavily_search_tool(api_key: str):
     """
     Create a Tavily search tool configured with the user's API key.
 
+    Wraps TavilySearch to expose max_results as a model-controllable parameter
+    alongside the natively exposed topic and time_range fields.
+
     Args:
         api_key: The user's Tavily API key
-
-    Returns:
-        TavilySearch tool instance configured with max_results=5 and topic="general"
 
     Raises:
         ValueError: If api_key is empty or None
@@ -59,7 +59,44 @@ def create_tavily_search_tool(api_key: str) -> TavilySearch:
     if not api_key or not api_key.strip():
         raise ToolException("Tavily API key is required")
 
-    return TavilySearch(tavily_api_key=api_key, max_results=5, topic="general")
+    base_tool = TavilySearch(tavily_api_key=api_key, max_results=5)
+
+    @tool(name_or_callable="tavily_search")
+    async def tavily_search(
+        query: str,
+        max_results: int = 5,
+        topic: str = "general",
+        time_range: str | None = None,
+        search_depth: str = "basic",
+        include_domains: list[str] | None = None,
+        exclude_domains: list[str] | None = None,
+    ) -> str:
+        """Search the web using Tavily.
+
+        Args:
+            query: Search query to look up.
+            max_results: Maximum number of results to return (1-20). Default is 5.
+            topic: Search category — "general" (default), "news" (politics, sports, current events), or "finance" (markets, investments, economic data).
+            time_range: Filter results by recency — "day", "week", "month", or "year". Default is None (no time filter). Use broader ranges for niche topics.
+            search_depth: Controls thoroughness — "basic" (default), "advanced" (complex/rare topics), "fast", or "ultra-fast".
+            include_domains: Restrict results to these domains only (e.g. ["arxiv.org", "nature.com"]).
+            exclude_domains: Exclude results from these domains.
+        """
+        base_tool.max_results = max(1, min(max_results, 20))
+        kwargs = {
+            "query": query,
+            "topic": topic,
+            "search_depth": search_depth,
+        }
+        if time_range:
+            kwargs["time_range"] = time_range
+        if include_domains:
+            kwargs["include_domains"] = include_domains
+        if exclude_domains:
+            kwargs["exclude_domains"] = exclude_domains
+        return await base_tool.ainvoke(kwargs)
+
+    return tavily_search
 
 
 def create_tavily_extract_tool(api_key: str) -> TavilyExtract:
