@@ -105,9 +105,11 @@ async def run_scheduled_task(
     table = dynamodb.Table(table_name)
 
     try:
-        # Register this execution as a chat session so it appears in history
-        from chat_history_service import chat_history_service
-        await chat_history_service.create_session_record(session_id, user_id)
+        # Session registration disabled to reduce chat history noise.
+        # Task executions are accessible via the Scheduled Tasks UI, and
+        # "Continue in chat" converts an execution into a full session on demand.
+        # from chat_history_service import chat_history_service
+        # await chat_history_service.create_session_record(session_id, user_id)
 
         # Load user tools then build an agent for headless execution.
         await agent_manager.build_tools_with_reconciliation(user_id)
@@ -122,8 +124,15 @@ async def run_scheduled_task(
 
         agent = await agent_manager.get_agent(user_id=user_id)
 
+        task_prompt = (
+            f"{prompt}\n\n"
+            "[TASK INSTRUCTION: This is an automated scheduled task. "
+            "Respond with the final output only — no preamble, no planning narration, "
+            "no phrases like 'Let me' or 'I'll now'. Start directly with the content.]"
+        )
+
         result = await agent.ainvoke(
-            {"messages": [{"role": "user", "content": [{"type": "text", "text": prompt}]}]},
+            {"messages": [{"role": "user", "content": [{"type": "text", "text": task_prompt}]}]},
             {"configurable": {"thread_id": session_id, "actor_id": user_id}, "recursion_limit": 200},
         )
 
