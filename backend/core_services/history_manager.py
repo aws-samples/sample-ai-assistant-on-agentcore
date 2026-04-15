@@ -331,6 +331,9 @@ def format_chat_for_frontend(
         }
 
     for message in backend_messages:
+        if getattr(message, "metadata", None) and message.metadata.get("sparky:hidden"):
+            continue
+
         if isinstance(message, HumanMessage):
             # Start a new turn
             if current_turn:

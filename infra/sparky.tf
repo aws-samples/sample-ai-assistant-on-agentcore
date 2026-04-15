@@ -2,35 +2,37 @@ resource "aws_bedrockagentcore_agent_runtime" "sparky" {
   agent_runtime_name = "sparky_sparky"
   role_arn           = aws_iam_role.sparky_role.arn
   environment_variables = {
-    CHAT_HISTORY_TABLE   = aws_dynamodb_table.sparky_chat_history.id,
-    TOOL_CONFIG_TABLE    = aws_dynamodb_table.tool_config.id,
-    SKILLS_TABLE         = aws_dynamodb_table.skills.id,
-    S3_BUCKET            = aws_s3_bucket.artifact_bucket.id,
-    SKILLS_S3_BUCKET     = aws_s3_bucket.skills_bucket.id,
-    REGION               = var.region,
-    MEMORY_ID            = aws_bedrockagentcore_memory.sparky_memory.id,
-    CODE_INTERPRETER_ID  = aws_bedrockagentcore_code_interpreter.sparky_ci.code_interpreter_id,
-    BROWSER_TOOL_ID      = aws_bedrockagentcore_browser.sparky_browser.browser_id,
-    SPARKY_MODEL_CONFIG  = jsonencode(var.sparky_models),
-    EXPIRY_DURATION_DAYS = tostring(var.expiry_duration_days),
-    KB_INDEXING_QUEUE_URL = aws_sqs_queue.kb_indexing.url,
-    KB_ID                 = aws_bedrockagent_knowledge_base.chat_kb.id,
-    RERANK_MODEL_ARN      = var.rerank_model_arn,
-    KB_SEARCH_TYPE        = var.kb_vector_store_type == "S3_VECTORS" ? "SEMANTIC" : "HYBRID",
-    PROJECTS_KB_ID        = aws_bedrockagent_knowledge_base.projects_kb.id,
-    PROJECTS_TABLE        = aws_dynamodb_table.projects.id,
-    PROJECT_FILES_TABLE   = aws_dynamodb_table.project_files.id,
-    PROJECTS_S3_BUCKET    = aws_s3_bucket.projects_bucket.id,
-    PROJECT_MEMORY_ID       = aws_bedrockagentcore_memory.project_memory.id,
-    PROJECT_CANVASES_TABLE  = aws_dynamodb_table.project_canvases.id,
-    CHECKPOINT_TABLE          = aws_dynamodb_table.checkpoints.id,
-    CHECKPOINT_BUCKET         = local.checkpoint_bucket_name,
+    CHAT_HISTORY_TABLE         = aws_dynamodb_table.sparky_chat_history.id,
+    TOOL_CONFIG_TABLE          = aws_dynamodb_table.tool_config.id,
+    SKILLS_TABLE               = aws_dynamodb_table.skills.id,
+    S3_BUCKET                  = aws_s3_bucket.artifact_bucket.id,
+    SKILLS_S3_BUCKET           = aws_s3_bucket.skills_bucket.id,
+    REGION                     = var.region,
+    MEMORY_ID                  = aws_bedrockagentcore_memory.sparky_memory.id,
+    CODE_INTERPRETER_ID        = aws_bedrockagentcore_code_interpreter.sparky_ci.code_interpreter_id,
+    BROWSER_TOOL_ID            = aws_bedrockagentcore_browser.sparky_browser.browser_id,
+    SPARKY_MODEL_CONFIG        = jsonencode(var.sparky_models),
+    EXPIRY_DURATION_DAYS       = tostring(var.expiry_duration_days),
+    KB_INDEXING_QUEUE_URL      = aws_sqs_queue.kb_indexing.url,
+    KB_ID                      = aws_bedrockagent_knowledge_base.chat_kb.id,
+    RERANK_MODEL_ARN           = var.rerank_model_arn,
+    KB_SEARCH_TYPE             = var.kb_vector_store_type == "S3_VECTORS" ? "SEMANTIC" : "HYBRID",
+    PROJECTS_KB_ID             = aws_bedrockagent_knowledge_base.projects_kb.id,
+    PROJECTS_TABLE             = aws_dynamodb_table.projects.id,
+    PROJECT_FILES_TABLE        = aws_dynamodb_table.project_files.id,
+    PROJECTS_S3_BUCKET         = aws_s3_bucket.projects_bucket.id,
+    PROJECT_MEMORY_ID          = aws_bedrockagentcore_memory.project_memory.id,
+    PROJECT_CANVASES_TABLE     = aws_dynamodb_table.project_canvases.id,
+    CHECKPOINT_TABLE           = aws_dynamodb_table.checkpoints.id,
+    CHECKPOINT_BUCKET          = local.checkpoint_bucket_name,
     CHECKPOINT_BUCKET_ENDPOINT = local.checkpoint_bucket_endpoint
+    TASK_EXECUTIONS_TABLE      = aws_dynamodb_table.scheduled_task_executions.id
+    TASK_EXECUTOR_CLIENT_ID    = aws_cognito_user_pool_client.task_executor.id
   }
   authorizer_configuration {
     custom_jwt_authorizer {
       discovery_url   = "https://cognito-idp.${var.region}.amazonaws.com/${aws_cognito_user_pool.user_pool.id}/.well-known/openid-configuration"
-      allowed_clients = [aws_cognito_user_pool_client.client.id]
+      allowed_clients = [aws_cognito_user_pool_client.client.id, aws_cognito_user_pool_client.task_executor.id]
     }
   }
   agent_runtime_artifact {
@@ -94,7 +96,7 @@ resource "null_resource" "docker_build_push" {
 
 
 resource "aws_iam_role" "sparky_role" {
-  name  = "${local.prefix}-sparky"
+  name = "${local.prefix}-sparky"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -119,8 +121,8 @@ resource "aws_iam_role" "sparky_role" {
 }
 
 resource "aws_iam_role_policy" "agent_core_policy" {
-  name  = "${local.prefix}-sparky-policy"
-  role  = aws_iam_role.sparky_role.id
+  name = "${local.prefix}-sparky-policy"
+  role = aws_iam_role.sparky_role.id
 
   policy = jsonencode({
     "Version" : "2012-10-17",
@@ -247,7 +249,10 @@ resource "aws_iam_role_policy" "agent_core_policy" {
         "Sid" : "S3PutArtifacts",
         "Effect" : "Allow",
         "Action" : ["s3:PutObject"],
-        "Resource" : "${aws_s3_bucket.artifact_bucket.arn}/artifact/*"
+        "Resource" : [
+          "${aws_s3_bucket.artifact_bucket.arn}/artifact/*",
+          "${aws_s3_bucket.artifact_bucket.arn}/task-outputs/*"
+        ]
       },
       {
         "Sid" : "S3PutImages",
@@ -430,9 +435,17 @@ resource "aws_dynamodb_table" "sparky_chat_history" {
 
   global_secondary_index {
     name            = "user_id-index"
-    hash_key        = "user_id"
-    range_key       = "created_at"
     projection_type = "ALL"
+
+    key_schema {
+      attribute_name = "user_id"
+      key_type       = "HASH"
+    }
+
+    key_schema {
+      attribute_name = "created_at"
+      key_type       = "RANGE"
+    }
   }
 
   ttl {
@@ -472,7 +485,7 @@ resource "aws_bedrockagentcore_code_interpreter" "sparky_ci" {
 
 # IAM role for Code Interpreter execution
 resource "aws_iam_role" "code_interpreter_role" {
-  name  = "${local.prefix}-code-interpreter"
+  name = "${local.prefix}-code-interpreter"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -555,9 +568,9 @@ resource "aws_iam_role_policy" "sparky_projects_policy" {
         Resource = aws_bedrockagent_knowledge_base.projects_kb.arn
       },
       {
-        Sid    = "ProjectsTableRead"
-        Effect = "Allow"
-        Action = ["dynamodb:GetItem"]
+        Sid      = "ProjectsTableRead"
+        Effect   = "Allow"
+        Action   = ["dynamodb:GetItem"]
         Resource = aws_dynamodb_table.projects.arn
       },
       {
@@ -570,9 +583,9 @@ resource "aws_iam_role_policy" "sparky_projects_policy" {
         ]
       },
       {
-        Sid    = "ProjectsS3Read"
-        Effect = "Allow"
-        Action = ["s3:GetObject"]
+        Sid      = "ProjectsS3Read"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
         Resource = "${aws_s3_bucket.projects_bucket.arn}/*"
       }
     ]
@@ -618,8 +631,8 @@ resource "aws_iam_role_policy" "sparky_project_canvases_policy" {
 
 # S3 permissions for Code Interpreter execution role
 resource "aws_iam_role_policy" "code_interpreter_s3_policy" {
-  name  = "${local.prefix}-code-interpreter-s3"
-  role  = aws_iam_role.code_interpreter_role.id
+  name = "${local.prefix}-code-interpreter-s3"
+  role = aws_iam_role.code_interpreter_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"

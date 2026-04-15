@@ -76,6 +76,16 @@ CORE_SERVICES_REQUEST_TYPES = {
     # Project memory
     "list_project_memories",
     "delete_project_memory",
+    # Scheduled tasks management
+    "create_scheduled_task",
+    "list_scheduled_tasks",
+    "get_scheduled_task",
+    "update_scheduled_task",
+    "delete_scheduled_task",
+    "toggle_scheduled_task",
+    "trigger_scheduled_task",
+    "list_task_executions",
+    "get_task_execution",
 }
 
 
@@ -463,6 +473,75 @@ async def invoke(request: InvocationRequest, http_request: Request):
             user_id=user_id,
             project_id=request.input.get("project_id", ""),
             memory_record_id=request.input.get("memory_record_id", ""),
+        )
+
+    # Scheduled Tasks handlers
+    if request_type == "create_scheduled_task":
+        return await handlers.handle_create_scheduled_task(
+            user_id=user_id,
+            name=request.input.get("name", ""),
+            prompt=request.input.get("prompt", ""),
+            schedule_expression=request.input.get("schedule_expression", ""),
+            timezone_str=request.input.get("timezone", "UTC"),
+            skills=request.input.get("skills"),
+        )
+
+    if request_type == "list_scheduled_tasks":
+        return await handlers.handle_list_scheduled_tasks(
+            user_id=user_id,
+            limit=request.input.get("limit", 50),
+            cursor=request.input.get("cursor"),
+        )
+
+    if request_type == "get_scheduled_task":
+        return await handlers.handle_get_scheduled_task(
+            user_id=user_id,
+            job_id=request.input.get("job_id", ""),
+        )
+
+    if request_type == "update_scheduled_task":
+        return await handlers.handle_update_scheduled_task(
+            user_id=user_id,
+            job_id=request.input.get("job_id", ""),
+            name=request.input.get("name"),
+            prompt=request.input.get("prompt"),
+            schedule_expression=request.input.get("schedule_expression"),
+            timezone_str=request.input.get("timezone"),
+            skills=request.input.get("skills"),
+        )
+
+    if request_type == "delete_scheduled_task":
+        return await handlers.handle_delete_scheduled_task(
+            user_id=user_id,
+            job_id=request.input.get("job_id", ""),
+        )
+
+    if request_type == "toggle_scheduled_task":
+        return await handlers.handle_toggle_scheduled_task(
+            user_id=user_id,
+            job_id=request.input.get("job_id", ""),
+            enabled=request.input.get("enabled", True),
+        )
+
+    if request_type == "trigger_scheduled_task":
+        return await handlers.handle_trigger_scheduled_task(
+            user_id=user_id,
+            job_id=request.input.get("job_id", ""),
+        )
+
+    if request_type == "list_task_executions":
+        return await handlers.handle_list_task_executions(
+            user_id=user_id,
+            job_id=request.input.get("job_id", ""),
+            limit=request.input.get("limit", 20),
+            cursor=request.input.get("cursor"),
+        )
+
+    if request_type == "get_task_execution":
+        return await handlers.handle_get_task_execution(
+            user_id=user_id,
+            job_id=request.input.get("job_id", ""),
+            execution_id=request.input.get("execution_id", ""),
         )
 
     # Unknown request type - return error

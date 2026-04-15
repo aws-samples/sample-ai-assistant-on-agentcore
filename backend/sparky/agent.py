@@ -1,10 +1,16 @@
 from contextlib import asynccontextmanager
+import os
 from functools import lru_cache
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from models import InvocationRequest
 from agent_manager import agent_manager
+from task_runner import (
+    active_tasks as _active_tasks,
+    agent_ready as _agent_ready,
+    run_scheduled_task as _run_scheduled_task,
+)
 from handlers import handlers
 from streaming import streaming_handler, cancel_stream_async
 from exceptions import MissingHeader
@@ -76,6 +82,13 @@ async def lifespan(app: FastAPI):
             ]
         )
         await agent_manager.initialize_default_agent()
+        # Validate task execution env vars if task executor is configured
+        _m2m_id = os.environ.get("TASK_EXECUTOR_CLIENT_ID")
+        if _m2m_id and not os.environ.get("TASK_EXECUTIONS_TABLE"):
+            raise EnvironmentError(
+                "TASK_EXECUTOR_CLIENT_ID is set but TASK_EXECUTIONS_TABLE is missing"
+            )
+        _agent_ready.set()
         logger.debug(
             "Agent initialized with local tools (MCP tools available via lifecycle manager)"
         )
@@ -137,10 +150,21 @@ async def invoke(request: InvocationRequest, http_request: Request):
     auth_header = http_request.headers.get("Authorization")
     user_sub = decode_jwt_token(auth_header)
 
+    # For M2M tokens (e.g. task executor), fall back to user_id from payload
+    if not user_sub:
+        user_sub = request.input.get("user_id")
+    if not user_sub:
+        raise MissingHeader
+
     request_type = request.input.get("type")
 
     # Session ownership validation — skip for ping and create_session
-    if request_type not in ("ping", "create_session"):
+    if request_type not in (
+        "ping",
+        "create_session",
+        "run_scheduled_task",
+        "convert_execution_to_chat",
+    ):
         validation = await validate_session_ownership(session_id, user_sub)
         if validation != "authorized":
             return error_envelope("auth_error", "Session not found or access denied")
@@ -170,6 +194,35 @@ async def invoke(request: InvocationRequest, http_request: Request):
     if request_type == "create_session":
         return await handlers.handle_create_session(user_sub, session_id)
 
+    if request_type == "run_scheduled_task":
+        import asyncio
+
+        # Only the M2M task executor client may invoke scheduled tasks
+        m2m_client_id = os.environ.get("TASK_EXECUTOR_CLIENT_ID", "")
+        if not m2m_client_id or user_sub != m2m_client_id:
+            return error_envelope(
+                "auth_error", "Unauthorized: scheduled tasks require M2M credentials"
+            )
+        job_id = request.input.get("job_id", "")
+        execution_id = request.input.get("execution_id", "")
+        prompt = request.input.get("prompt", "")
+        # M2M token sub is the Cognito client ID, not the actual user.
+        # Use the real user_id from the payload as the actor for tool loading, checkpointing, and result recording.
+        task_user_id = request.input.get("user_id") or user_sub
+        _active_tasks.add(execution_id)
+        asyncio.create_task(
+            _run_scheduled_task(
+                prompt=prompt,
+                session_id=session_id,
+                user_id=task_user_id,
+                job_id=job_id,
+                execution_id=execution_id,
+            )
+        )
+        return JSONResponse(
+            {"type": "scheduled_task_accepted", "execution_id": execution_id}
+        )
+
     if request_type == "prepare":
         return await handlers.handle_prepare(request, session_id, user_sub)
 
@@ -178,6 +231,9 @@ async def invoke(request: InvocationRequest, http_request: Request):
 
     if request_type == "branch":
         return await handlers.handle_branch(request, session_id, user_sub)
+
+    if request_type == "convert_execution_to_chat":
+        return await handlers.handle_convert_execution_to_chat(request, user_sub)
 
     if request_type == "canvas_edit":
         return await handlers.handle_canvas_edit(request.input, user_sub, session_id)
@@ -218,6 +274,8 @@ async def invoke(request: InvocationRequest, http_request: Request):
 
 @app.get("/ping")
 async def ping():
+    if _active_tasks:
+        return JSONResponse({"status": "HealthyBusy"})
     return JSONResponse({"status": "Healthy"})
 
 

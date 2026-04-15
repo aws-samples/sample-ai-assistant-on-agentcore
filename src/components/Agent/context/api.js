@@ -294,6 +294,37 @@ export const branchSession = async (sourceSessionId, turnIndex, checkpointId) =>
   return data;
 };
 
+/**
+ * Convert a scheduled task execution into a chat session.
+ */
+export const convertExecutionToChat = async (executionId, jobName) => {
+  const token = await getAuthToken();
+
+  const response = await fetch(SPARKY_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": createSparkySessionHeader(executionId),
+    },
+    body: JSON.stringify({
+      input: {
+        type: "convert_execution_to_chat",
+        execution_id: executionId,
+        job_name: jobName,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to convert execution: ${response.status}`);
+  }
+
+  const data = await response.json();
+  throwIfErrorEnvelope(data);
+  return data;
+};
+
 export const prepareSession = async (
   sessionId,
   diagramPath = null,

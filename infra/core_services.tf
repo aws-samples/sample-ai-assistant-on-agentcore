@@ -59,18 +59,18 @@ resource "aws_bedrockagentcore_agent_runtime" "core_services" {
   role_arn           = aws_iam_role.core_services_role.arn
 
   environment_variables = {
-    CHAT_HISTORY_TABLE   = aws_dynamodb_table.sparky_chat_history.id,
-    TOOL_CONFIG_TABLE    = aws_dynamodb_table.tool_config.id,
-    SKILLS_TABLE         = aws_dynamodb_table.skills.id,
-    REGION               = var.region,
-    MODEL_ID             = var.model_core_services,
-    S3_BUCKET            = aws_s3_bucket.artifact_bucket.id,
-    SKILLS_S3_BUCKET     = aws_s3_bucket.skills_bucket.id,
-    EXPIRY_DURATION_DAYS = tostring(var.expiry_duration_days),
-    KB_ID                = aws_bedrockagent_knowledge_base.chat_kb.id,
-    RERANK_MODEL_ARN     = var.rerank_model_arn,
-    KB_SEARCH_TYPE       = var.kb_vector_store_type == "S3_VECTORS" ? "SEMANTIC" : "HYBRID"
-    MEMORY_ID            = aws_bedrockagentcore_memory.sparky_memory.id,
+    CHAT_HISTORY_TABLE         = aws_dynamodb_table.sparky_chat_history.id,
+    TOOL_CONFIG_TABLE          = aws_dynamodb_table.tool_config.id,
+    SKILLS_TABLE               = aws_dynamodb_table.skills.id,
+    REGION                     = var.region,
+    MODEL_ID                   = var.model_core_services,
+    S3_BUCKET                  = aws_s3_bucket.artifact_bucket.id,
+    SKILLS_S3_BUCKET           = aws_s3_bucket.skills_bucket.id,
+    EXPIRY_DURATION_DAYS       = tostring(var.expiry_duration_days),
+    KB_ID                      = aws_bedrockagent_knowledge_base.chat_kb.id,
+    RERANK_MODEL_ARN           = var.rerank_model_arn,
+    KB_SEARCH_TYPE             = var.kb_vector_store_type == "S3_VECTORS" ? "SEMANTIC" : "HYBRID"
+    MEMORY_ID                  = aws_bedrockagentcore_memory.sparky_memory.id,
     PROJECTS_TABLE             = aws_dynamodb_table.projects.id,
     PROJECT_FILES_TABLE        = aws_dynamodb_table.project_files.id,
     PROJECTS_S3_BUCKET         = aws_s3_bucket.projects_bucket.id,
@@ -81,6 +81,10 @@ resource "aws_bedrockagentcore_agent_runtime" "core_services" {
     CHECKPOINT_TABLE           = aws_dynamodb_table.checkpoints.id,
     CHECKPOINT_BUCKET          = local.checkpoint_bucket_name,
     CHECKPOINT_BUCKET_ENDPOINT = local.checkpoint_bucket_endpoint
+    TASK_JOBS_TABLE            = aws_dynamodb_table.scheduled_tasks.id,
+    TASK_EXECUTIONS_TABLE      = aws_dynamodb_table.scheduled_task_executions.id,
+    TASK_QUEUE_URL             = aws_sqs_queue.task_execution.url,
+    TASK_SCHEDULER_ROLE_ARN    = aws_iam_role.task_scheduler_role.arn
   }
 
   authorizer_configuration {
@@ -116,7 +120,7 @@ resource "aws_bedrockagentcore_agent_runtime" "core_services" {
 #======================== IAM Role ======================
 
 resource "aws_iam_role" "core_services_role" {
-  name  = "${local.prefix}-core-services"
+  name = "${local.prefix}-core-services"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -149,8 +153,8 @@ resource "aws_iam_role" "core_services_role" {
 #======================== IAM Policies ======================
 
 resource "aws_iam_role_policy" "core_services_base_policy" {
-  name  = "${local.prefix}-core-services-base-policy"
-  role  = aws_iam_role.core_services_role.id
+  name = "${local.prefix}-core-services-base-policy"
+  role = aws_iam_role.core_services_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -232,8 +236,8 @@ resource "aws_iam_role_policy" "core_services_base_policy" {
 
 # DynamoDB access for Chat History and Tool Config tables
 resource "aws_iam_role_policy" "core_services_dynamodb_policy" {
-  name  = "${local.prefix}-core-services-dynamodb-policy"
-  role  = aws_iam_role.core_services_role.id
+  name = "${local.prefix}-core-services-dynamodb-policy"
+  role = aws_iam_role.core_services_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -296,8 +300,8 @@ resource "aws_iam_role_policy" "core_services_dynamodb_policy" {
 
 # Bedrock model invocation for description generation
 resource "aws_iam_role_policy" "core_services_bedrock_policy" {
-  name  = "${local.prefix}-core-services-bedrock-policy"
-  role  = aws_iam_role.core_services_role.id
+  name = "${local.prefix}-core-services-bedrock-policy"
+  role = aws_iam_role.core_services_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -319,8 +323,8 @@ resource "aws_iam_role_policy" "core_services_bedrock_policy" {
 
 # KB search and rerank permissions (only if KB indexing is enabled)
 resource "aws_iam_role_policy" "core_services_kb_policy" {
-  name  = "${local.prefix}-core-services-kb-policy"
-  role  = aws_iam_role.core_services_role.id
+  name = "${local.prefix}-core-services-kb-policy"
+  role = aws_iam_role.core_services_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -347,8 +351,8 @@ resource "aws_iam_role_policy" "core_services_kb_policy" {
 
 # SQS permissions for KB delete events (only if KB indexing is enabled)
 resource "aws_iam_role_policy" "core_services_sqs_policy" {
-  name  = "${local.prefix}-core-services-sqs-policy"
-  role  = aws_iam_role.core_services_role.id
+  name = "${local.prefix}-core-services-sqs-policy"
+  role = aws_iam_role.core_services_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -359,7 +363,10 @@ resource "aws_iam_role_policy" "core_services_sqs_policy" {
         Action = [
           "sqs:SendMessage"
         ]
-        Resource = aws_sqs_queue.kb_indexing.arn
+        Resource = [
+          aws_sqs_queue.kb_indexing.arn,
+          aws_sqs_queue.task_execution.arn
+        ]
       }
     ]
   })
@@ -367,8 +374,8 @@ resource "aws_iam_role_policy" "core_services_sqs_policy" {
 
 # Skills table access for skill management
 resource "aws_iam_role_policy" "core_services_skills_policy" {
-  name  = "${local.prefix}-core-services-skills-policy"
-  role  = aws_iam_role.core_services_role.id
+  name = "${local.prefix}-core-services-skills-policy"
+  role = aws_iam_role.core_services_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -394,8 +401,8 @@ resource "aws_iam_role_policy" "core_services_skills_policy" {
 
 # S3 access for presigned URL generation (download link refresh) - architecture bucket (PPTX only)
 resource "aws_iam_role_policy" "core_services_s3_policy" {
-  name  = "${local.prefix}-core-services-s3-policy"
-  role  = aws_iam_role.core_services_role.id
+  name = "${local.prefix}-core-services-s3-policy"
+  role = aws_iam_role.core_services_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -406,7 +413,10 @@ resource "aws_iam_role_policy" "core_services_s3_policy" {
         Action = [
           "s3:GetObject"
         ]
-        Resource = "${aws_s3_bucket.artifact_bucket.arn}/artifact/*"
+        Resource = [
+          "${aws_s3_bucket.artifact_bucket.arn}/artifact/*",
+          "${aws_s3_bucket.artifact_bucket.arn}/task-outputs/*"
+        ]
       }
     ]
   })
@@ -414,8 +424,8 @@ resource "aws_iam_role_policy" "core_services_s3_policy" {
 
 # S3 access for skills content in the dedicated skills bucket
 resource "aws_iam_role_policy" "core_services_skills_s3_policy" {
-  name  = "${local.prefix}-core-services-skills-s3-policy"
-  role  = aws_iam_role.core_services_role.id
+  name = "${local.prefix}-core-services-skills-s3-policy"
+  role = aws_iam_role.core_services_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -618,16 +628,16 @@ resource "aws_iam_role_policy" "core_services_checkpointer_policy" {
           Resource = "arn:aws:s3express:${var.region}:${data.aws_caller_identity.caller_identity.account_id}:bucket/${local.checkpoint_bucket_name}"
         },
         {
-          Sid    = "S3ExpressRead"
-          Effect = "Allow"
-          Action = ["s3:GetObject"]
+          Sid      = "S3ExpressRead"
+          Effect   = "Allow"
+          Action   = ["s3:GetObject"]
           Resource = "arn:aws:s3express:${var.region}:${data.aws_caller_identity.caller_identity.account_id}:bucket/${local.checkpoint_bucket_name}/*"
         }
-      ] : [
+        ] : [
         {
-          Sid    = "S3CheckpointRead"
-          Effect = "Allow"
-          Action = ["s3:GetObject"]
+          Sid      = "S3CheckpointRead"
+          Effect   = "Allow"
+          Action   = ["s3:GetObject"]
           Resource = "${aws_s3_bucket.checkpoint_offload[0].arn}/*"
         }
       ]

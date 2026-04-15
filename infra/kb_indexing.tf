@@ -5,7 +5,7 @@
 #======================== SQS Queue ======================
 
 resource "aws_sqs_queue" "kb_indexing" {
-  name  = "${local.prefix}-kb-indexing"
+  name = "${local.prefix}-kb-indexing"
 
   # Visibility timeout should be longer than Lambda timeout to prevent duplicate processing
   visibility_timeout_seconds = 300
@@ -27,7 +27,7 @@ resource "aws_sqs_queue" "kb_indexing" {
 
 # Dead letter queue for failed messages
 resource "aws_sqs_queue" "kb_indexing_dlq" {
-  name  = "${local.prefix}-kb-indexing-dlq"
+  name = "${local.prefix}-kb-indexing-dlq"
 
   message_retention_seconds = 1209600 # 14 days for DLQ
   sqs_managed_sse_enabled   = true
@@ -63,7 +63,7 @@ data "archive_file" "kb_indexer" {
 #======================== IAM Role and Policies ======================
 
 resource "aws_iam_role" "kb_indexer_role" {
-  name  = "${local.prefix}-kb-indexer-role"
+  name = "${local.prefix}-kb-indexer-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -86,8 +86,8 @@ resource "aws_iam_role" "kb_indexer_role" {
 
 # Policy for Bedrock KB APIs
 resource "aws_iam_role_policy" "kb_indexer_bedrock_policy" {
-  name  = "${local.prefix}-kb-indexer-bedrock-policy"
-  role  = aws_iam_role.kb_indexer_role.id
+  name = "${local.prefix}-kb-indexer-bedrock-policy"
+  role = aws_iam_role.kb_indexer_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -123,8 +123,8 @@ resource "aws_iam_role_policy" "kb_indexer_bedrock_policy" {
 
 # Policy for SQS receive/delete
 resource "aws_iam_role_policy" "kb_indexer_sqs_policy" {
-  name  = "${local.prefix}-kb-indexer-sqs-policy"
-  role  = aws_iam_role.kb_indexer_role.id
+  name = "${local.prefix}-kb-indexer-sqs-policy"
+  role = aws_iam_role.kb_indexer_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -145,8 +145,8 @@ resource "aws_iam_role_policy" "kb_indexer_sqs_policy" {
 
 # Policy for CloudWatch Logs
 resource "aws_iam_role_policy" "kb_indexer_logs_policy" {
-  name  = "${local.prefix}-kb-indexer-logs-policy"
-  role  = aws_iam_role.kb_indexer_role.id
+  name = "${local.prefix}-kb-indexer-logs-policy"
+  role = aws_iam_role.kb_indexer_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -238,8 +238,8 @@ resource "aws_cloudwatch_log_group" "kb_indexer" {
 
 # Policy for Sparky to send messages to KB indexing queue
 resource "aws_iam_role_policy" "sparky_kb_indexing_sqs_policy" {
-  name  = "${local.prefix}-sparky-kb-indexing-sqs-policy"
-  role  = aws_iam_role.sparky_role.id
+  name = "${local.prefix}-sparky-kb-indexing-sqs-policy"
+  role = aws_iam_role.sparky_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -258,8 +258,8 @@ resource "aws_iam_role_policy" "sparky_kb_indexing_sqs_policy" {
 
 # Policy for Sparky to search KB and rerank results
 resource "aws_iam_role_policy" "sparky_kb_search_policy" {
-  name  = "${local.prefix}-sparky-kb-search-policy"
-  role  = aws_iam_role.sparky_role.id
+  name = "${local.prefix}-sparky-kb-search-policy"
+  role = aws_iam_role.sparky_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -299,7 +299,7 @@ locals {
 #======================== S3 Vectors ======================
 
 resource "aws_s3vectors_vector_bucket" "kb_vectors" {
-  count             = local.use_s3_vectors ? 1 : 0
+  count              = local.use_s3_vectors ? 1 : 0
   vector_bucket_name = "${local.prefix}-kb-vectors"
 }
 
@@ -409,9 +409,9 @@ resource "aws_opensearchserverless_access_policy" "kb_data_access" {
 }
 
 resource "aws_opensearchserverless_collection" "kb_vectors" {
-  count = local.use_opensearch ? 1 : 0
-  name  = "${local.prefix}-kb-vectors"
-  type  = "VECTORSEARCH"
+  count            = local.use_opensearch ? 1 : 0
+  name             = "${local.prefix}-kb-vectors"
+  type             = "VECTORSEARCH"
   standby_replicas = "DISABLED"
 
   depends_on = [
@@ -532,7 +532,7 @@ PYTHON_SCRIPT
 #======================== Bedrock Knowledge Base IAM Role ======================
 
 resource "aws_iam_role" "kb_role" {
-  name  = "${local.prefix}-kb-role"
+  name = "${local.prefix}-kb-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -562,8 +562,8 @@ resource "aws_iam_role" "kb_role" {
 }
 
 resource "aws_iam_role_policy" "kb_bedrock_policy" {
-  name  = "${local.prefix}-kb-bedrock-policy"
-  role  = aws_iam_role.kb_role.id
+  name = "${local.prefix}-kb-bedrock-policy"
+  role = aws_iam_role.kb_role.id
 
   policy = jsonencode({
     Version = "2012-10-17"

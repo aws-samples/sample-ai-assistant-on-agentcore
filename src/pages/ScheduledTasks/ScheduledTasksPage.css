@@ -1,0 +1,284 @@
+/**
+ * Scheduled Tasks Page Styles
+ *
+ * Full-height layout matching Skills/ToolConfig page patterns.
+ */
+
+.st-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+}
+
+.st-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.5rem;
+}
+
+.st-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.st-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.st-title h1 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.st-scroll {
+  flex: 1;
+  overflow: auto;
+}
+
+.st-content {
+  padding: 1rem 1.5rem 1.5rem;
+  max-width: 1200px;
+}
+
+/* Status badges */
+.st-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-weight: 500;
+}
+
+.st-status.enabled {
+  background: color-mix(in srgb, #22c55e 15%, transparent);
+  color: #22c55e;
+}
+
+.st-status.disabled {
+  background: color-mix(in srgb, var(--color-muted-foreground) 15%, transparent);
+  color: var(--color-muted-foreground);
+}
+
+.st-status.deleted {
+  background: color-mix(in srgb, #ef4444 15%, transparent);
+  color: #ef4444;
+}
+
+.st-actions {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.st-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 4rem 1rem;
+  color: var(--color-muted-foreground);
+  font-size: 0.875rem;
+}
+
+/* Detail view */
+.st-detail-back {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--color-muted-foreground);
+  cursor: pointer;
+  font-size: 0.875rem;
+  padding: 0;
+  background: none;
+  border: none;
+}
+
+.st-detail-back:hover {
+  color: var(--color-foreground);
+}
+
+.st-detail-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.st-detail-title-row h1 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.st-detail-info {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.5rem 1.5rem;
+  margin-bottom: 1.5rem;
+  font-size: 0.875rem;
+}
+
+.st-detail-info dt {
+  color: var(--color-muted-foreground);
+  font-weight: 500;
+}
+
+.st-section-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem;
+  color: var(--color-foreground);
+}
+
+.st-detail-prompt {
+  background: var(--chat-bubble-incoming);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin-bottom: 0.5rem;
+  white-space: pre-wrap;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.exec-status {
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.exec-status.completed {
+  color: #22c55e;
+}
+
+.exec-status.failed {
+  color: #ef4444;
+}
+
+.exec-status.running {
+  color: #3b82f6;
+}
+
+/* Execution output sheet — drag handle (matches shadcn ResizableHandle) */
+.exec-output-drag-handle {
+  position: absolute;
+  top: 0;
+  left: -8px;
+  width: 16px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Grip indicator — small rounded pill with dots, like ResizableHandle withHandle */
+.exec-output-drag-handle::after {
+  content: "⠿";
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 16px;
+  border-radius: 2px;
+  border: 1px solid var(--color-border);
+  background: var(--color-border);
+  font-size: 8px;
+  line-height: 1;
+  color: var(--color-muted-foreground);
+}
+
+/* Disable transition while dragging for instant resize */
+.exec-output-sheet.is-dragging {
+  transition: none !important;
+}
+
+/* Execution output sheet */
+.exec-output-sheet {
+  width: var(--sheet-width, 576px) !important;
+  max-width: 90vw !important;
+}
+
+.exec-output-sheet > button:first-child {
+  top: 1.875rem;
+  right: 1.5rem;
+}
+
+.exec-output-sheet[data-state="open"] {
+  animation: exec-sheet-slide-in 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.exec-output-sheet[data-state="closed"] {
+  animation: exec-sheet-slide-out 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@keyframes exec-sheet-slide-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes exec-sheet-slide-out {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+.exec-output-skeleton {
+  animation: skeleton-fade-in 0.4s ease both;
+}
+
+@keyframes skeleton-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.exec-output-content {
+  animation: content-fade-in 0.3s ease;
+}
+
+@keyframes content-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .st-header {
+    padding: 0.75rem 1rem;
+  }
+
+  .st-content {
+    padding: 0.75rem 1rem 1rem;
+  }
+}

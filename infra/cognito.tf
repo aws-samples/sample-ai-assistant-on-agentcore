@@ -70,6 +70,38 @@ resource "aws_cognito_user_pool_client" "client" {
   prevent_user_existence_errors = "ENABLED"
 }
 
+# Resource server for machine-to-machine (M2M) access
+resource "aws_cognito_resource_server" "sparky_api" {
+  identifier   = "sparky-api"
+  name         = "${local.prefix}-api"
+  user_pool_id = aws_cognito_user_pool.user_pool.id
+
+  scope {
+    scope_name        = "invoke"
+    scope_description = "Invoke Sparky runtime"
+  }
+}
+
+# M2M client for task executor Lambda (client credentials flow)
+resource "aws_cognito_user_pool_client" "task_executor" {
+  name         = "${local.prefix}-task-executor"
+  user_pool_id = aws_cognito_user_pool.user_pool.id
+
+  generate_secret = true
+
+  allowed_oauth_flows                  = ["client_credentials"]
+  allowed_oauth_flows_user_pool_client = true
+  supported_identity_providers         = ["COGNITO"]
+  allowed_oauth_scopes                 = ["sparky-api/invoke"]
+
+  access_token_validity = 1
+  token_validity_units {
+    access_token = "hours"
+  }
+
+  depends_on = [aws_cognito_resource_server.sparky_api]
+}
+
 # Add random string resource
 resource "random_string" "domain_suffix" {
   length  = 6

@@ -43,11 +43,11 @@ resource "aws_iam_role_policy" "project_memory_exec_policy" {
       Effect = "Allow"
       # InvokeModel: foundation models and cross-region inference profiles
       # GetInferenceProfile: required when the model_id is an inference profile
-      Action   = ["bedrock:InvokeModel", "bedrock:GetInferenceProfile"]
+      Action = ["bedrock:InvokeModel", "bedrock:GetInferenceProfile"]
       Resource = [
-          "arn:aws:bedrock:*::foundation-model/*",
-          "arn:aws:bedrock:*:${data.aws_caller_identity.caller_identity.account_id}:*"
-        ]
+        "arn:aws:bedrock:*::foundation-model/*",
+        "arn:aws:bedrock:*:${data.aws_caller_identity.caller_identity.account_id}:*"
+      ]
     }]
   })
 }
@@ -97,7 +97,7 @@ resource "aws_bedrockagentcore_memory_strategy" "project_semantic" {
         - Ignore casual exchanges, greetings, acknowledgments, and anything that carries
           no lasting informational value.
       EOT
-      model_id = var.project_memory_extraction_model_id
+      model_id         = var.project_memory_extraction_model_id
     }
 
     consolidation {
@@ -106,7 +106,7 @@ resource "aws_bedrockagentcore_memory_strategy" "project_semantic" {
         - Preserve specifics: names, versions, decisions, and outcomes should remain precise.
         - Keep consolidated memories concise but complete enough to be useful in isolation.
       EOT
-      model_id = var.project_memory_extraction_model_id
+      model_id         = var.project_memory_extraction_model_id
     }
   }
 

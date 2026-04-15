@@ -46,3 +46,5 @@ docs/
 __pycache__
 delete-os.py
 .ruff_cache
+
+.archive

@@ -696,6 +696,78 @@ class RequestHandlers:
             return error_envelope("internal_error", "An unexpected error occurred.")
 
     @staticmethod
+    async def handle_convert_execution_to_chat(
+        request: InvocationRequest, user_id: str
+    ) -> JSONResponse:
+        """Convert a scheduled task execution into a chat session.
+
+        Copies the LangGraph thread (keyed by execution_id) into a new
+        thread and registers it as a normal chat session so the user can
+        continue the conversation in the chat UI.
+        """
+        execution_id = request.input.get("execution_id")
+        job_name = request.input.get("job_name", "Scheduled task")
+
+        if not execution_id:
+            return error_envelope("validation_error", "execution_id is required")
+
+        try:
+            # Load checkpoint from the execution thread
+            source_config = {
+                "configurable": {
+                    "thread_id": execution_id,
+                    "actor_id": user_id,
+                }
+            }
+            state = await agent_manager.cached_agent.aget_state(source_config)
+
+            if not state or not state.values.get("messages"):
+                return error_envelope(
+                    "not_found", "No conversation found for this execution"
+                )
+
+            messages = state.values["messages"]
+            canvases = state.values.get("canvases", {})
+
+            # Create new session
+            new_session_id = str(uuid.uuid4())
+            new_config = {
+                "configurable": {
+                    "thread_id": new_session_id,
+                    "actor_id": user_id,
+                }
+            }
+            await agent_manager.cached_agent.aupdate_state(
+                new_config,
+                values={"messages": messages, "canvases": canvases},
+            )
+
+            # Register in chat history
+            await chat_history_service.create_session_record(
+                session_id=new_session_id,
+                user_id=user_id,
+            )
+            await chat_history_service.update_session_description(
+                session_id=new_session_id,
+                description=job_name,
+            )
+
+            register_session(new_session_id, user_id)
+
+            return JSONResponse(
+                {
+                    "type": "convert_complete",
+                    "session_id": new_session_id,
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to convert execution to chat: {e}")
+            return error_envelope(
+                "internal_error", "Failed to convert execution to chat"
+            )
+
+    @staticmethod
     async def handle_generate_live_view_url(browser_session_id: str) -> JSONResponse:
         """Generate a fresh live view URL for the given browser session."""
         if not browser_session_id:
