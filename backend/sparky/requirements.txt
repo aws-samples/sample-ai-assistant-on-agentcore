@@ -24,7 +24,7 @@ httpx==0.28.1
 PyJWT==2.12.0
 
 # Image processing for attachments
-Pillow==12.1.1
+Pillow==12.2.0
 
 # Browser automation via CDP WebSocket
 playwright==1.58.0
