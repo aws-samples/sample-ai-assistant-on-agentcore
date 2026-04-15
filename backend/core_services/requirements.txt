@@ -26,4 +26,4 @@ langchain-core>=0.3.0
 langgraph-checkpoint-aws>=1.0.6
 
 # Image processing for history_manager thumbnail generation
-Pillow==12.1.1
+Pillow==12.2.0
