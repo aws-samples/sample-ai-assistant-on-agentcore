@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Clock, Plus, Trash2, Pencil, Power, Loader2 } from "lucide-react";
+import { Clock, Plus, Trash2, Pencil, Power, Loader2, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,10 +14,13 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   listScheduledTasks,
+  listTaskExecutions,
   deleteScheduledTask,
   toggleScheduledTask,
 } from "@/services/scheduledTasksService";
+import { convertExecutionToChat } from "@/components/Agent/context/api";
 import { DataTable, SortableHeader } from "./components/DataTable";
+import { ExecutionOutputSheet } from "./components/ExecutionOutputSheet";
 import { TaskForm } from "./components/TaskForm";
 import { TaskDetail } from "./components/TaskDetail";
 import "./ScheduledTasksPage.css";
@@ -35,11 +38,29 @@ export default function ScheduledTasksPage() {
   const [editJob, setEditJob] = useState(null);
   const [deleteJobId, setDeleteJobId] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [latestExecs, setLatestExecs] = useState({});
+  const [viewExec, setViewExec] = useState(null);
+  const [converting, setConverting] = useState(null);
 
   const loadJobs = useCallback(async () => {
     try {
       const data = await listScheduledTasks();
-      setJobs(data.jobs || []);
+      const jobList = data.jobs || [];
+      setJobs(jobList);
+
+      // Fetch latest execution for each job in parallel
+      const active = jobList.filter((j) => j.status !== "deleted");
+      const results = await Promise.allSettled(
+        active.map((j) => listTaskExecutions(j.job_id, 1))
+      );
+      const execs = {};
+      active.forEach((j, i) => {
+        if (results[i].status === "fulfilled") {
+          const list = results[i].value.executions || [];
+          if (list.length) execs[j.job_id] = list[0];
+        }
+      });
+      setLatestExecs(execs);
     } catch (err) {
       console.error("Failed to load scheduled tasks:", err);
       toast.error("Failed to load scheduled tasks");
@@ -85,6 +106,29 @@ export default function ScheduledTasksPage() {
     }
   };
 
+  const handleConvertToChat = async (exec) => {
+    const job = jobs.find((j) => j.job_id === exec.job_id);
+    setConverting(exec.execution_id);
+    try {
+      const result = await convertExecutionToChat(exec.execution_id, job?.name);
+      window.dispatchEvent(
+        new CustomEvent("chatCreated", {
+          detail: {
+            sessionId: result.session_id,
+            description: job?.name,
+            createdAt: new Date().toISOString(),
+          },
+        })
+      );
+      navigate(`/chat/${result.session_id}`);
+    } catch (err) {
+      console.error("Failed to convert execution to chat:", err);
+      toast.error("Failed to convert execution to chat");
+    } finally {
+      setConverting(null);
+    }
+  };
+
   const jobColumns = useMemo(
     () => [
       {
@@ -126,6 +170,30 @@ export default function ScheduledTasksPage() {
         ),
       },
       {
+        id: "latest_output",
+        header: "Latest Output",
+        cell: ({ row }) => {
+          const exec = latestExecs[row.original.job_id];
+          if (!exec) return <span className="text-sm text-muted-foreground">—</span>;
+          const isRunning = exec.status === "running";
+          return isRunning ? (
+            <Loader2 className="animate-spin text-muted-foreground" size={14} />
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon"
+              title="View latest output"
+              onClick={(e) => {
+                e.stopPropagation();
+                setViewExec(exec);
+              }}
+            >
+              <Eye size={14} />
+            </Button>
+          );
+        },
+      },
+      {
         id: "actions",
         header: "",
         cell: ({ row }) => {
@@ -165,7 +233,7 @@ export default function ScheduledTasksPage() {
         },
       },
     ],
-    [handleToggle, handleDeleteClick, navigate, setEditJob, setShowForm]
+    [handleToggle, handleDeleteClick, navigate, setEditJob, setShowForm, latestExecs]
   );
 
   const filteredJobs = useMemo(() => jobs.filter((j) => j.status !== "deleted"), [jobs]);
@@ -222,6 +290,13 @@ export default function ScheduledTasksPage() {
         onClose={() => setShowForm(false)}
         onSave={loadJobs}
         editJob={editJob}
+      />
+
+      <ExecutionOutputSheet
+        execution={viewExec}
+        onClose={() => setViewExec(null)}
+        onConvertToChat={handleConvertToChat}
+        converting={!!converting}
       />
 
       <Dialog open={!!deleteJobId} onOpenChange={(v) => !v && setDeleteJobId(null)}>
