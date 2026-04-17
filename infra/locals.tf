@@ -18,6 +18,18 @@ locals {
     filesha256("${path.module}/../backend/sparky/${f}")]))
   ])), 0, 12)
 
+  # Display labels for effort-type reasoning levels
+  effort_label_map = {
+    "low"    = "Low"
+    "medium" = "Medium"
+    "high"   = "High"
+    "xhigh"  = "XHigh"
+    "max"    = "Max"
+  }
+
+  # Generic labels for budget-type reasoning levels
+  budget_labels = ["Low", "Medium", "High", "Max"]
+
   core_services_image_tag = substr(sha256(join("", [
     filemd5("${path.module}/../backend/core_services/Dockerfile"),
     filemd5("${path.module}/../backend/core_services/requirements.txt"),

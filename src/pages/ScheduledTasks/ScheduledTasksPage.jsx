@@ -50,9 +50,7 @@ export default function ScheduledTasksPage() {
 
       // Fetch latest execution for each job in parallel
       const active = jobList.filter((j) => j.status !== "deleted");
-      const results = await Promise.allSettled(
-        active.map((j) => listTaskExecutions(j.job_id, 1))
-      );
+      const results = await Promise.allSettled(active.map((j) => listTaskExecutions(j.job_id, 1)));
       const execs = {};
       active.forEach((j, i) => {
         if (results[i].status === "fulfilled") {

@@ -63,6 +63,9 @@ output "sparky_model_config_frontend" {
         description      = m.description
         reasoning_type   = m.reasoning_type
         reasoning_levels = length(m.reasoning_type == "budget" ? m.budget_mapping : m.effort_mapping)
+        reasoning_labels = (m.reasoning_type == "effort"
+          ? [for k in sort(keys(m.effort_mapping)) : local.effort_label_map[m.effort_mapping[k]]]
+          : slice(local.budget_labels, 0, length(m.budget_mapping)))
       }
     ]
   })
