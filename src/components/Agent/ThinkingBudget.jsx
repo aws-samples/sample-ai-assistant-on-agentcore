@@ -4,7 +4,7 @@ import { useTheme } from "../ThemeContext";
 import { sparkyModelConfig } from "../../config";
 
 const MODEL_STORAGE_KEY = "selectedModelId";
-const LEVEL_LABELS = ["Low", "Medium", "High", "Max"];
+const DEFAULT_LABELS = ["Low", "Medium", "High", "Max"];
 
 const ThinkingBudget = React.memo(({ initialBudget, onBudgetChange }) => {
   const { isDark } = useTheme();
@@ -15,6 +15,7 @@ const ThinkingBudget = React.memo(({ initialBudget, onBudgetChange }) => {
   );
 
   const selectedModelConfig = sparkyModelConfig.models.find((m) => m.id === selectedModelId);
+  const levelLabels = selectedModelConfig?.reasoning_labels || DEFAULT_LABELS;
   const maxLevels = selectedModelConfig?.reasoning_levels || 3;
 
   // Sync from parent when initialBudget prop changes
@@ -46,7 +47,7 @@ const ThinkingBudget = React.memo(({ initialBudget, onBudgetChange }) => {
     return () => clearTimeout(id);
   }, [localBudget, onBudgetChange]);
 
-  const items = LEVEL_LABELS.slice(0, maxLevels).map((label, i) => ({
+  const items = levelLabels.slice(0, maxLevels).map((label, i) => ({
     id: String(i + 1),
     content: label,
   }));

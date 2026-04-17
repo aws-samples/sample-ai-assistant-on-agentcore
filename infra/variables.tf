@@ -42,14 +42,6 @@ variable "sparky_models" {
     error_message = "Each model's reasoning_type must be 'budget' or 'effort'."
   }
 
-  validation {
-    condition = alltrue([
-      for m in var.sparky_models.models :
-      length(m.reasoning_type == "budget" ? m.budget_mapping : m.effort_mapping) >= 1 &&
-      length(m.reasoning_type == "budget" ? m.budget_mapping : m.effort_mapping) <= 4
-    ])
-    error_message = "Each model must have between 1 and 4 reasoning level mappings."
-  }
 
   validation {
     condition = contains(
@@ -63,15 +55,15 @@ variable "sparky_models" {
     default_model_id = "claude-sonnet-4.6"
     models = [
       {
-        id             = "claude-opus-4.6"
-        model_id       = "global.anthropic.claude-opus-4-6-v1"
-        label          = "Claude Opus 4.6"
+        id             = "claude-opus-4.7"
+        model_id       = "global.anthropic.claude-opus-4-7"
+        label          = "Claude Opus 4.7"
         description    = "Best model"
         max_tokens     = 128000
         reasoning_type = "effort"
         budget_mapping = {}
-        effort_mapping = { "1" = "low", "2" = "medium", "3" = "high", "4" = "max" }
-        beta_flags     = ["context-1m-2025-08-07", "fine-grained-tool-streaming-2025-05-14"]
+        effort_mapping = { "1" = "low", "2" = "medium", "3" = "high", "4" = "xhigh", "5" = "max" }
+        beta_flags     = []
       },
       {
         id             = "claude-sonnet-4.6"
@@ -85,15 +77,15 @@ variable "sparky_models" {
         beta_flags     = ["context-1m-2025-08-07", "fine-grained-tool-streaming-2025-05-14"]
       },
       {
-        id             = "claude-opus-4.5"
-        model_id       = "global.anthropic.claude-opus-4-5-20251101-v1:0"
-        label          = "Claude Opus 4.5"
-        description    = "Most capable"
-        max_tokens     = 64000
-        reasoning_type = "budget"
-        budget_mapping = { "1" = 16000, "2" = 30000, "3" = 42000, "4" = 63999 }
-        effort_mapping = {}
-        beta_flags     = ["interleaved-thinking-2025-05-14", "fine-grained-tool-streaming-2025-05-14"]
+        id             = "claude-opus-4.6"
+        model_id       = "global.anthropic.claude-opus-4-6-v1"
+        label          = "Claude Opus 4.6"
+        description    = "Best previous model"
+        max_tokens     = 128000
+        reasoning_type = "effort"
+        budget_mapping = {}
+        effort_mapping = { "1" = "low", "2" = "medium", "3" = "high", "4" = "max" }
+        beta_flags     = ["context-1m-2025-08-07", "fine-grained-tool-streaming-2025-05-14"]
       },
       {
         id             = "claude-haiku-4.5"

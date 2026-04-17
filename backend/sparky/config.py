@@ -204,12 +204,17 @@ def create_model_config(budget_level: int = 1, model_id: Optional[str] = None) -
     if budget_level > max_level:
         budget_level = max_level
 
+    is_adaptive = model_config.get("reasoning_type") == "effort"
+
     base_config = {
         "max_tokens": model_config["max_tokens"],
         "model_id": effective_model_id,
         "client": boto_client,
-        "temperature": 0 if budget_level == 0 else 1,
     }
+
+    # Bedrock rejects temperature when thinking.type == "adaptive"
+    if not is_adaptive:
+        base_config["temperature"] = 0 if budget_level == 0 else 1
 
     if budget_level == 0:
         # Still apply beta flags (e.g. fine-grained-tool-streaming) even without thinking
@@ -220,10 +225,10 @@ def create_model_config(budget_level: int = 1, model_id: Optional[str] = None) -
             }
         return base_config
 
-    if model_config.get("reasoning_type") == "effort":
+    if is_adaptive:
         effort = model_config.get("effort_mapping", {}).get(budget_level, "medium")
         fields = {
-            "thinking": {"type": "adaptive"},
+            "thinking": {"type": "adaptive", "display": "summarized"},
             "output_config": {"effort": effort},
         }
     else:
