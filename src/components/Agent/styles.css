@@ -448,6 +448,123 @@ pre.ace-cloud_editor::-webkit-scrollbar {
   margin-bottom: 0 !important;
 }
 
+/* Thread anchor — inline span wrapping the quoted text of a thread in an AI
+ * message. Uses a subtle background highlight (rather than border/underline)
+ * so that quotes crossing inline markdown boundaries or wrapping across lines
+ * still read as one continuous highlighted region instead of disconnected
+ * stubs. Styled with the markdown link color to signal clickability. */
+.thread-anchor-inline {
+  cursor: pointer;
+  color: #2563eb;
+  background-color: rgba(59, 130, 246, 0.14);
+  /* Slightly taller-than-text background so stacked lines feel continuous. */
+  padding: 0.05em 0;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  border-radius: 2px;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.thread-anchor-inline:hover,
+.thread-anchor-inline.thread-anchor-hover {
+  color: #1d4ed8;
+  background-color: rgba(59, 130, 246, 0.26);
+}
+
+html.dark .thread-anchor-inline {
+  color: #93c5fd;
+  background-color: rgba(96, 165, 250, 0.2);
+}
+
+html.dark .thread-anchor-inline:hover,
+html.dark .thread-anchor-inline.thread-anchor-hover {
+  color: #bfdbfe;
+  background-color: rgba(96, 165, 250, 0.32);
+}
+
+/* Scroll-to-bottom pill for the thread drawer — centered above the ChatInput
+ * so it reads as "jump to latest" without crowding the input's send button. */
+/* Floating pill that appears above a text selection in AI messages */
+.thread-ask-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+  background: var(--color-popover);
+  color: var(--color-popover-foreground);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  white-space: nowrap;
+  transition: background-color 0.15s ease;
+  user-select: none;
+}
+
+.thread-ask-button:hover {
+  background: var(--color-accent);
+  color: var(--color-accent-foreground);
+}
+
+/* Fade below the drawer header — chat content fades out as it scrolls
+ * behind the header. Positioned absolutely over the scroll container. */
+.thread-header-fade {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 25px;
+  background: linear-gradient(to bottom, hsl(var(--background)), transparent);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Tighter spacing inside the thread drawer */
+.thread-drawer-content .chat-turn {
+  padding-top: 4px !important;
+  margin-bottom: 20px !important;
+}
+
+.thread-scroll-button-wrap {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 16px;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.thread-scroll-button-wrap > * {
+  pointer-events: auto;
+}
+
+.thread-scroll-button-wrap .scroll-button {
+  background-color: rgba(240, 240, 240, 0.9);
+  border-color: rgba(128, 128, 128, 0.4);
+  color: #333;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+.thread-scroll-button-wrap .scroll-button:hover {
+  background-color: rgba(230, 230, 230, 0.95);
+  border-color: rgba(128, 128, 128, 0.6);
+}
+
+html.dark .thread-scroll-button-wrap .scroll-button {
+  background-color: rgba(50, 50, 50, 0.9);
+  border-color: rgba(180, 180, 180, 0.4);
+  color: #e0e0e0;
+}
+
+html.dark .thread-scroll-button-wrap .scroll-button:hover {
+  background-color: rgba(60, 60, 60, 0.95);
+  border-color: rgba(180, 180, 180, 0.6);
+}
+
 /* ===== Skeleton Colors ===== */
 
 /* Override skeleton colors globally - light grey in light mode */

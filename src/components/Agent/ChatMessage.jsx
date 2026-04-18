@@ -6,6 +6,7 @@ import { createMessageBuilder } from "./utils/buildMessageBlocks";
 import { isWebTool } from "./toolClassification";
 import { parseWebResults } from "./utils/parseWebResults";
 import { getAttachedTools } from "./utils/thinkBlockHelpers";
+import { parseThreadSessionId } from "./useChatSessionFunctions";
 
 /**
  * ChatMessage Component
@@ -31,11 +32,12 @@ const ChatMessage = React.memo(
     turnIndex,
     boundProject = null,
   }) => {
-    const inputHeight = 240;
+    const inputHeight = 200;
     const endMarker = message?.[message.length - 1];
     const isEnd = endMarker?.end === true;
     const checkpointId = endMarker?.checkpoint_id ?? null;
     const tokenStats = endMarker?.token_stats ?? null;
+    const isThreadSession = !!parseThreadSessionId(sessionId);
     const hasScrolled = useRef(false);
     const messageRef = useRef(null);
 
@@ -109,8 +111,8 @@ const ChatMessage = React.memo(
           alignItems: "flex-start",
           columnGap: "8px",
           width: "100%",
-          marginBottom: "50px",
-          height: isLast && `calc(100vh - ${inputHeight}px)`,
+          marginBottom: "20px",
+          height: isLast ? `calc(100vh - ${inputHeight}px)` : undefined,
         }}
       >
         <MessageAvatar isUser={false} loading={streaming && !isEnd} />
@@ -129,47 +131,59 @@ const ChatMessage = React.memo(
               backgroundColor: "",
             }}
           >
-            {messageBlocks.map((block, index) => {
-              const nextBlock = messageBlocks[index + 1];
+            {(() => {
+              let textBlockCount = 0;
+              return messageBlocks.map((block, index) => {
+                const nextBlock = messageBlocks[index + 1];
 
-              // Add spacing between all blocks when there's a next block
-              const marginBottom = nextBlock ? "16px" : "2px";
+                // Add spacing between all blocks when there's a next block
+                const marginBottom = nextBlock ? "16px" : "2px";
 
-              // Determine if this block is still streaming
-              // A block is streaming if the overall message is streaming and the block is not complete
-              const blockIsStreaming = streaming && !block.isComplete;
+                // Determine if this block is still streaming
+                // A block is streaming if the overall message is streaming and the block is not complete
+                const blockIsStreaming = streaming && !block.isComplete;
 
-              return (
-                <div key={index} style={{ marginBottom }}>
-                  <ContentResolver
-                    msg={block}
-                    type={block.type}
-                    isBlockComplete={block.isComplete}
-                    isParentFirstMount={isParentFirstMount}
-                    sessionId={sessionId}
-                    webSearchResults={webSearchResults}
-                    isStreaming={blockIsStreaming}
-                    isStreamEnd={isEnd}
-                    boundProject={boundProject}
-                  />
-                </div>
-              );
-            })}
+                // Assign a thread-anchor index to each text block so the backend
+                // can disambiguate anchors when a turn contains multiple AI
+                // responses (rare, but happens with multi-step agent loops).
+                const aiMessageIndex = block.type === "text" ? textBlockCount++ : undefined;
+
+                return (
+                  <div key={index} style={{ marginBottom }}>
+                    <ContentResolver
+                      msg={block}
+                      type={block.type}
+                      isBlockComplete={block.isComplete}
+                      isParentFirstMount={isParentFirstMount}
+                      sessionId={sessionId}
+                      webSearchResults={webSearchResults}
+                      isStreaming={blockIsStreaming}
+                      isStreamEnd={isEnd}
+                      boundProject={boundProject}
+                      turnIndex={turnIndex}
+                      aiMessageIndex={aiMessageIndex}
+                    />
+                  </div>
+                );
+              });
+            })()}
 
             {isEnd && (
-              <ChatButtons
-                content={message}
-                messageRef={messageRef}
-                webSources={webSources}
-                sessionId={sessionId}
-                turnIndex={turnIndex}
-                checkpointId={checkpointId}
-                tokenStats={tokenStats}
-              />
+              <>
+                <ChatButtons
+                  content={message}
+                  messageRef={messageRef}
+                  webSources={webSources}
+                  sessionId={sessionId}
+                  turnIndex={turnIndex}
+                  checkpointId={checkpointId}
+                  tokenStats={tokenStats}
+                  hideBranch={isThreadSession}
+                />
+              </>
             )}
 
-            {/* Spacer to add breathing room at the bottom of chat */}
-            <div style={{ height: "50px" }} />
+            <div style={{ height: "20px" }} />
           </div>
         </div>
       </div>

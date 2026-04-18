@@ -20,6 +20,7 @@ import { CanvasProvider, useCanvas } from "./context/CanvasContext";
 import { CANVAS_TOOL_IDS } from "../../services/toolConfigService";
 import { canvasCallbacksRef } from "./context/streamChunkHandler";
 import CanvasPanel from "./CanvasPanel";
+import ThreadDrawer from "./Thread/ThreadDrawer";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { bindProject, unbindProject } from "../../services/projectsService";
 import { saveCanvasToProject, deleteProjectCanvas } from "./context/api";
@@ -497,7 +498,7 @@ function ChatInterfaceContent({
           )}
         </div>
         {!isEmpty && <div className="stick-to-bottom-fade" />}
-        {showButton && (
+        {showButton && !currentSession?.activeThreadId && (
           <ScrollToBottomButton
             scroll={() => scrollToBottom(true)}
             className="scroll-to-bottom-button"
@@ -560,6 +561,7 @@ function ChatInterfaceContent({
           </>
         )}
       </ResizablePanelGroup>
+      {activeSessionId && <ThreadDrawer sessionId={activeSessionId} user={user} />}
     </>
   );
 }

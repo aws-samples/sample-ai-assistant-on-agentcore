@@ -87,6 +87,7 @@ class SparkyContext:
     user_id: str = ""
     session_id: str = ""
     enabled_tools: List[str] = field(default_factory=list)
+    disabled_tools: List[str] = field(default_factory=list)
     model_id: Optional[str] = None
     project_id: str = ""
     project_name: str = ""
@@ -95,6 +96,10 @@ class SparkyContext:
     project_data_files: List[str] = field(default_factory=list)
     project_canvases: List[dict] = field(default_factory=list)
     project_preferences: str = ""
+    # Thread (side-conversation) mode — when True, skip canvas guidance, skip
+    # project-memory ingestion, skip KB indexing. Thread state lives under a
+    # distinct checkpoint_ns.
+    thread_mode: bool = False
 
 
 class SparkyState(MessagesState):
@@ -187,6 +192,15 @@ CANVAS_TOOL_NAMES = {
     "create_mermaid",
     "update_canvas",
 }
+
+
+# Tools unavailable inside a Thread (side-conversation) run.
+# Threads are lightweight sub-conversations anchored to a span of an AI message
+# and must not touch canvases, the browser, or project-canvas persistence.
+# Tools forbidden inside a Thread (side-conversation). Threads can still
+# READ project canvases via load_project_canvas — only the mutating tools
+# (create/update) are blocked, so a thread never alters the parent's canvas.
+THREAD_DISABLED_TOOLS: set[str] = CANVAS_TOOL_NAMES | {"browse_web"}
 
 
 class CanvasMiddleware(AgentMiddleware):
@@ -352,11 +366,15 @@ def create_react_agent(
                 else SparkyContext()
             )
             enabled_tools = set(ctx.enabled_tools or [])
-            # Only include optional tools that are explicitly enabled
+            disabled_tools = set(ctx.disabled_tools or [])
+            # Only include optional tools that are explicitly enabled;
+            # then strip anything in the runtime blacklist (used by Thread mode
+            # to remove canvas/browser/project-canvas tools).
             active_tools = [
                 t
                 for t in _tools
-                if t.name not in _optional_tool_names or t.name in enabled_tools
+                if (t.name not in _optional_tool_names or t.name in enabled_tools)
+                and t.name not in disabled_tools
             ]
 
             # Strip non-standard content blocks (e.g. cachePoint) from the system
@@ -491,10 +509,17 @@ def create_react_agent(
                 )
             )
 
-            # Project memory ingestion — fire-and-forget, never blocks the response
+            # Project memory ingestion — fire-and-forget, never blocks the response.
+            # Skip in thread mode: thread turns are side-conversations and should
+            # not pollute project long-term memory.
             from config import memory_store as _memory_store
 
-            if _memory_store and ctx.project_id and ctx.user_id:
+            if (
+                _memory_store
+                and ctx.project_id
+                and ctx.user_id
+                and not ctx.thread_mode
+            ):
                 last_human_msg = (
                     filtered_messages[-1]
                     if filtered_messages

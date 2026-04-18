@@ -6,6 +6,8 @@ import RetrievedImages from "./RetrievedImages";
 import DataFrameTable from "./DataFrameTable";
 import BrowserSessionIndicator from "./BrowserSessionIndicator";
 import CanvasToolIndicator from "./CanvasToolIndicator";
+import SelectionMenu from "./Thread/SelectionMenu";
+import { parseThreadSessionId } from "./useChatSessionFunctions";
 
 const ContentResolver = React.memo(
   ({
@@ -17,10 +19,16 @@ const ContentResolver = React.memo(
     isStreamEnd,
     sessionId,
     boundProject = null,
+    turnIndex,
+    aiMessageIndex = 0,
   }) => {
     switch (type) {
-      case "text":
-        return (
+      case "text": {
+        // Wrap finalized assistant text in the SelectionMenu so the user can
+        // right-click a highlighted span to spawn a Thread. Disabled while the
+        // block is still streaming — anchoring to partial content is confusing
+        // and the content hash would drift when more tokens arrive.
+        const textBody = (
           <TextContent
             content={msg.content}
             citations={msg.citations}
@@ -28,6 +36,26 @@ const ContentResolver = React.memo(
             isStreaming={isStreaming}
           />
         );
+        const isThreadSession = !!parseThreadSessionId(sessionId);
+        const canThread =
+          !isStreaming &&
+          isBlockComplete &&
+          typeof turnIndex === "number" &&
+          !!sessionId &&
+          !isThreadSession;
+        if (!canThread) return textBody;
+        return (
+          <SelectionMenu
+            sessionId={sessionId}
+            turnIndex={turnIndex}
+            aiMessageIndex={aiMessageIndex}
+            textSource={typeof msg.content === "string" ? msg.content : ""}
+            enabled
+          >
+            {textBody}
+          </SelectionMenu>
+        );
+      }
       case "think": {
         // Find browser session in content segments
         const browserSegment = msg.contentSegments?.find((seg) => seg.type === "browser_session");

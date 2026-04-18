@@ -23,6 +23,7 @@ resource "aws_bedrockagentcore_agent_runtime" "sparky" {
     PROJECTS_S3_BUCKET         = aws_s3_bucket.projects_bucket.id,
     PROJECT_MEMORY_ID          = aws_bedrockagentcore_memory.project_memory.id,
     PROJECT_CANVASES_TABLE     = aws_dynamodb_table.project_canvases.id,
+    THREAD_ANCHORS_TABLE       = aws_dynamodb_table.thread_anchors.id,
     CHECKPOINT_TABLE           = aws_dynamodb_table.checkpoints.id,
     CHECKPOINT_BUCKET          = local.checkpoint_bucket_name,
     CHECKPOINT_BUCKET_ENDPOINT = local.checkpoint_bucket_endpoint
@@ -591,6 +592,34 @@ resource "aws_iam_role_policy" "sparky_projects_policy" {
     ]
   })
 }
+
+# DynamoDB permissions for Thread anchors (side-conversations on AI message spans)
+resource "aws_iam_role_policy" "sparky_thread_anchors_policy" {
+  name = "${local.prefix}-sparky-thread-anchors-policy"
+  role = aws_iam_role.sparky_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "ThreadAnchorsTableAccess"
+        Effect = "Allow"
+        Action = [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:DeleteItem",
+          "dynamodb:Query",
+          "dynamodb:BatchWriteItem",
+        ]
+        Resource = [
+          aws_dynamodb_table.thread_anchors.arn,
+          "${aws_dynamodb_table.thread_anchors.arn}/index/*",
+        ]
+      }
+    ]
+  })
+}
+
 
 # DynamoDB + S3 permissions for project canvas artifacts
 resource "aws_iam_role_policy" "sparky_project_canvases_policy" {

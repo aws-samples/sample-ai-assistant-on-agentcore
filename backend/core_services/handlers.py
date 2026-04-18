@@ -514,7 +514,16 @@ class RequestHandlers:
                     "unauthorized", "Access denied: session belongs to another user"
                 )
 
-            history = await get_history(history_graph, session_id, user_id)
+            # Fetch history + thread anchors concurrently. Thread anchors
+            # live in a dedicated DDB table (not LangGraph state) so they
+            # can't corrupt the parent session's checkpoint.
+            import asyncio
+            from thread_anchor_service import list_anchors_for_session
+
+            history, thread_anchors = await asyncio.gather(
+                get_history(history_graph, session_id, user_id),
+                list_anchors_for_session(session_id),
+            )
 
             history_data = history.get("history", []) if history else []
             canvases_data = history.get("canvases", {}) if history else {}
@@ -538,6 +547,7 @@ class RequestHandlers:
                     "session_id": session_id,
                     "history": history_data,
                     "canvases": canvases_data,
+                    "thread_anchors": thread_anchors,
                     "project": bound_project,
                 },
                 headers=CORS_HEADERS,

@@ -7,6 +7,10 @@ import {
   stopAPI,
   connectStreamResume,
   cleanupStreamResume,
+  sendThreadCreateAPI,
+  sendThreadMessageAPI,
+  fetchThreadAPI,
+  deleteThreadAPI,
 } from "./context/api";
 import {
   getSessionRefs,
@@ -18,6 +22,43 @@ import {
 import { MAX_SESSIONS } from "./context/constants";
 import { consumeSSEStream, consumeStreamResumeSSE } from "./context/sessionLogic";
 import { DEFAULT_CANVAS_STATE } from "./context/CanvasContext";
+
+/**
+ * Threads live as first-class entries in the top-level `sessions` Map, keyed
+ * by a composite id containing this marker so they can't collide with real
+ * session UUIDs and are easy to detect.
+ */
+const THREAD_SESSION_MARKER = "#thread:";
+
+// Sentinel activeThreadId values that aren't real thread_ids.
+// - DRAFT:   user started a thread (clicked "Ask Sparky") but hasn't sent yet
+// - PENDING: thread_create API is in-flight, drawer shows streaming state
+export const THREAD_DRAFT_ID = "__draft__";
+export const THREAD_PENDING_ID = "__pending__";
+
+export const threadSessionId = (parentSessionId, threadId) =>
+  `${parentSessionId}${THREAD_SESSION_MARKER}${threadId}`;
+
+export const parseThreadSessionId = (sessionId) => {
+  const idx = sessionId?.indexOf?.(THREAD_SESSION_MARKER);
+  if (typeof idx !== "number" || idx < 0) return null;
+  return {
+    parent: sessionId.slice(0, idx),
+    thread: sessionId.slice(idx + THREAD_SESSION_MARKER.length),
+  };
+};
+
+/** Flatten a possibly-structured content value into plain text. */
+const extractText = (content) => {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content.map((b) => (typeof b === "string" ? b : b?.text || b?.content || "")).join("");
+  }
+  if (content && typeof content === "object") {
+    return content.text || content.content || "";
+  }
+  return "";
+};
 
 export const useChatSessionFunctions = (props) => {
   const {
@@ -144,6 +185,13 @@ export const useChatSessionFunctions = (props) => {
       error: null,
       restoredFromBackend: false,
       canvasState: DEFAULT_CANVAS_STATE,
+      // Threads — side-conversations anchored to AI message spans. Each thread
+      // is rendered via a synthetic session entry in the top-level sessions
+      // Map (keyed by threadSessionId(parent, thread)), so it reuses the main
+      // ChatContent/streaming pipeline wholesale. The parent session only
+      // tracks anchors + which thread is currently open in the drawer.
+      threadAnchors: new Map(), // Map<threadId, Anchor>
+      activeThreadId: null,
       ...overrides,
     });
 
@@ -175,6 +223,7 @@ export const useChatSessionFunctions = (props) => {
 
           let chatTurns = null;
           let backendCanvases = {};
+          let backendThreadAnchors = [];
           let boundProject = null;
           let isActiveStream = false;
 
@@ -184,6 +233,7 @@ export const useChatSessionFunctions = (props) => {
               const result = await fetchSessionHistory(sessionId);
               chatTurns = result.history;
               backendCanvases = result.canvases || {};
+              backendThreadAnchors = result.threadAnchors || [];
               boundProject = result.boundProject ?? null;
             } catch (error) {
               console.warn(`Failed to fetch session ${sessionId} history:`, error);
@@ -267,10 +317,17 @@ export const useChatSessionFunctions = (props) => {
 
           // Set session from history if no active stream
           if (chatTurns !== null && !isActiveStream) {
+            // Build the threadAnchors Map from the array returned by the backend.
+            const anchorMap = new Map();
+            for (const a of backendThreadAnchors) {
+              if (a?.thread_id) anchorMap.set(a.thread_id, a);
+            }
+
             const restoredSession = createDefaultSession(sessionId, {
               chatTurns,
               backendCanvases,
               boundProject,
+              threadAnchors: anchorMap,
               restoredFromBackend: true,
             });
 
@@ -542,6 +599,305 @@ export const useChatSessionFunctions = (props) => {
       }
     };
 
+    // ─── Threads (side-conversations) ──────────────────────────────
+    //
+    // A Thread lives as a SYNTHETIC session in the top-level sessions Map,
+    // keyed by threadSessionId(parent, thread). That gives us the entire
+    // main-chat rendering + streaming pipeline for free — ChatContent, the
+    // SSE consumer, chatTurns buffering, stop/retry, etc.
+    //
+    // Anchors and activeThreadId still live on the PARENT session so the
+    // "open this thread" dropdown and selection menu can find them.
+
+    /** Ensure a synthetic session exists for the given thread and return its id. */
+    const ensureThreadSession = (parentSessionId, threadId) => {
+      const tsid = threadSessionId(parentSessionId, threadId);
+      setSessions((prev) => {
+        if (prev.has(tsid)) return prev;
+        const next = new Map(prev);
+        next.set(
+          tsid,
+          createDefaultSession(tsid, {
+            parentSessionId,
+            threadId,
+          })
+        );
+        return next;
+      });
+      ensureSessionRefs(tsid);
+      return tsid;
+    };
+
+    /**
+     * Create a new thread anchored to a span of an AI message. Registers the
+     * anchor + a synthetic session, then immediately streams the opening
+     * turn. The caller typically also calls setActiveThread to open the
+     * drawer on top of the new thread.
+     */
+    const createThread = async ({
+      sessionId,
+      turnIndex,
+      aiMessageIndex = 0,
+      contentSha256,
+      quotedText,
+      startOffset,
+      endOffset,
+      prompt,
+      title = null,
+      messageId = null,
+      config = null,
+    }) => {
+      let createResp;
+      try {
+        createResp = await sendThreadCreateAPI({
+          sessionId,
+          turnIndex,
+          aiMessageIndex,
+          contentSha256,
+          quotedText,
+          startOffset,
+          endOffset,
+          prompt,
+          title,
+          messageId,
+        });
+      } catch (err) {
+        console.error("Failed to create thread:", err);
+        throw err;
+      }
+
+      const { thread_id: threadId, anchor } = createResp;
+      const tsid = threadSessionId(sessionId, threadId);
+
+      // Register the anchor on the parent, spawn the synthetic session, and
+      // open the drawer on top of it — all in a single state update.
+      setSessions((prev) => {
+        const parent = prev.get(sessionId);
+        if (!parent) return prev;
+        const anchors = parent.threadAnchors ? new Map(parent.threadAnchors) : new Map();
+        anchors.set(threadId, anchor);
+
+        const next = new Map(prev);
+        next.set(sessionId, {
+          ...parent,
+          threadAnchors: anchors,
+          activeThreadId: threadId,
+        });
+        if (!next.has(tsid)) {
+          next.set(
+            tsid,
+            createDefaultSession(tsid, {
+              parentSessionId: sessionId,
+              threadId,
+            })
+          );
+        }
+        return next;
+      });
+      ensureSessionRefs(tsid);
+      initializedSessions.current.add(tsid);
+
+      try {
+        await sendThreadMessage({
+          sessionId,
+          threadId,
+          prompt,
+          config,
+        });
+      } catch (err) {
+        updateSession(tsid, setSessions, {
+          error: err.message || "Failed to send thread message",
+          isStreaming: false,
+        });
+        throw err;
+      }
+
+      return { threadId, anchor, threadSessionId: tsid };
+    };
+
+    /**
+     * Send a follow-up message in a thread. Writes into the synthetic
+     * session's chatTurns exactly like the main sendMessage flow, then runs
+     * the stream through the shared consumeSSEStream helper so we pick up
+     * tool / reasoning / canvas chunks for free.
+     */
+    const sendThreadMessage = async ({ sessionId, threadId, prompt, config = null }) => {
+      if (!prompt || !prompt.trim()) return;
+      const tsid = ensureThreadSession(sessionId, threadId);
+
+      // Append a fresh turn and mark the synthetic session streaming.
+      cleanupSSE(tsid, sessionRefs, setSessions, flushBuffer);
+      const turnId = `turn_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+      setSessions((prev) => {
+        const session = prev.get(tsid);
+        if (!session) return prev;
+        const next = new Map(prev);
+        next.set(tsid, {
+          ...session,
+          chatTurns: [
+            ...session.chatTurns,
+            { id: turnId, userMessage: prompt, aiMessage: [], attachments: [] },
+          ],
+          isStreaming: true,
+          error: null,
+        });
+        return next;
+      });
+
+      let response;
+      try {
+        response = await sendThreadMessageAPI({ sessionId, threadId, prompt, config });
+      } catch (err) {
+        updateSession(tsid, setSessions, {
+          isStreaming: false,
+          error: err.message || "Failed to send thread message",
+        });
+        throw err;
+      }
+
+      const abortController = new AbortController();
+      const refs = getSessionRefs(tsid, sessionRefs);
+      refs._streamAbortController = abortController;
+
+      try {
+        await consumeSSEStream(response, tsid, false, {
+          setSessions,
+          sessionRefs,
+          signal: abortController.signal,
+        });
+      } catch (err) {
+        console.error("Thread stream error:", err);
+        updateSession(tsid, setSessions, {
+          isStreaming: false,
+          error: err.message || "Thread stream failed",
+        });
+        throw err;
+      } finally {
+        updateSession(tsid, setSessions, { isStreaming: false });
+      }
+    };
+
+    /**
+     * Lazy-load a thread's message history into its synthetic session as
+     * simple text chatTurns. Used when a user reopens a thread after page
+     * reload.
+     *
+     * We deliberately render restored threads as simple `{type:"text"}` blocks
+     * — the backend returns `[{role, content}]` which doesn't carry tool /
+     * reasoning metadata. New turns streamed into the same session do pick
+     * up the full chunk envelope via consumeSSEStream.
+     */
+    const fetchThread = async (sessionId, threadId) => {
+      const tsid = ensureThreadSession(sessionId, threadId);
+      try {
+        const data = await fetchThreadAPI({ sessionId, threadId });
+        const serverMessages = data.messages || [];
+        const chatTurns = [];
+        let current = null;
+        for (const m of serverMessages) {
+          if (m.role === "user") {
+            if (current) {
+              current.aiMessage.push({ end: true });
+              chatTurns.push(current);
+            }
+            current = {
+              id: `turn_${chatTurns.length}_${Date.now()}_restored`,
+              userMessage: typeof m.content === "string" ? m.content : extractText(m.content),
+              aiMessage: [],
+              attachments: [],
+            };
+          } else if (m.role === "assistant" && current) {
+            const text = typeof m.content === "string" ? m.content : extractText(m.content);
+            if (text) current.aiMessage.push({ type: "text", content: text });
+          }
+        }
+        if (current) {
+          current.aiMessage.push({ end: true });
+          chatTurns.push(current);
+        }
+        updateSession(tsid, setSessions, {
+          chatTurns,
+          isStreaming: false,
+          error: null,
+          restoredFromBackend: true,
+        });
+        initializedSessions.current.add(tsid);
+        return data;
+      } catch (err) {
+        console.error(`Failed to fetch thread ${threadId}:`, err);
+        updateSession(tsid, setSessions, {
+          error: err.message || "Failed to load thread",
+        });
+        throw err;
+      }
+    };
+
+    /**
+     * Delete a thread. Cancels any in-flight stream, drops the synthetic
+     * session + the anchor on the parent, and tells the backend to remove
+     * the checkpoints.
+     */
+    const deleteThread = async (sessionId, threadId) => {
+      const tsid = threadSessionId(sessionId, threadId);
+      try {
+        await deleteThreadAPI({ sessionId, threadId });
+      } catch (err) {
+        console.error(`Failed to delete thread ${threadId}:`, err);
+        // Still drop local state — best-effort parity with server.
+      }
+
+      // Tear down the synthetic session's refs + subscription.
+      const refs = sessionRefs.current.get(tsid);
+      if (refs?._streamAbortController) refs._streamAbortController.abort();
+      removeSession(tsid);
+
+      setSessions((prev) => {
+        const parent = prev.get(sessionId);
+        if (!parent) return prev;
+        const anchors = parent.threadAnchors ? new Map(parent.threadAnchors) : new Map();
+        anchors.delete(threadId);
+        const activeThreadId = parent.activeThreadId === threadId ? null : parent.activeThreadId;
+        const next = new Map(prev);
+        next.set(sessionId, { ...parent, threadAnchors: anchors, activeThreadId });
+        return next;
+      });
+    };
+
+    const setDraftThread = (sessionId, draft) => {
+      setSessions((prev) => {
+        const parent = prev.get(sessionId);
+        if (!parent) return prev;
+        const next = new Map(prev);
+        next.set(sessionId, { ...parent, draftThread: draft });
+        return next;
+      });
+    };
+
+    const setActiveThread = (sessionId, threadId) => {
+      if (threadId && threadId !== THREAD_DRAFT_ID && threadId !== THREAD_PENDING_ID) {
+        ensureThreadSession(sessionId, threadId);
+      }
+      setSessions((prev) => {
+        const parent = prev.get(sessionId);
+        if (!parent) return prev;
+        const next = new Map(prev);
+        next.set(sessionId, { ...parent, activeThreadId: threadId });
+        return next;
+      });
+    };
+
+    const stopThreadStream = async (sessionId, threadId) => {
+      try {
+        await stopAPI(sessionId, threadId);
+      } catch (err) {
+        console.error("Failed to stop thread stream:", err);
+      }
+      const tsid = threadSessionId(sessionId, threadId);
+      const refs = sessionRefs.current.get(tsid);
+      refs?._streamAbortController?.abort();
+      updateSession(tsid, setSessions, { isStreaming: false });
+    };
+
     const refreshSession = async (sessionId) => {
       initializedSessions.current.delete(sessionId);
       await initializeSession(sessionId, true);
@@ -573,6 +929,15 @@ export const useChatSessionFunctions = (props) => {
       removeSession,
       flushAllSessions,
       handleAuthChange,
+
+      // Threads
+      createThread,
+      sendThreadMessage,
+      fetchThread,
+      deleteThread,
+      setDraftThread,
+      setActiveThread,
+      stopThreadStream,
     };
   }, []);
 };
