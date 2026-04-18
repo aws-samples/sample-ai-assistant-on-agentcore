@@ -1010,13 +1010,11 @@ async def _thread_streaming_body(
 
         tmp_msg = {"messages": [{"role": "user", "content": prompt}]}
 
-        # Compute server-authoritative enabled_tools list.
-        all_tools = agent_manager.cached_tools or []
-        allowed_optional = [
-            t.name
-            for t in all_tools
-            if getattr(t, "name", None) and t.name not in THREAD_DISABLED_TOOLS
-        ]
+        # Threads start with NO optional tools enabled. We only re-enable the
+        # project tools below when the parent session is bound to a project.
+        # Core tools (fetch_skill, manage_skill, execute_code, etc.) are not
+        # in OPTIONAL_TOOL_NAMES so they remain always-available.
+        allowed_optional: list[str] = []
 
         # Inherit the parent session's project binding so threads share the
         # project's KB, memory, files, and preferences. Without this, a thread
