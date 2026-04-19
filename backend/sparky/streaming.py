@@ -1056,9 +1056,8 @@ async def _thread_streaming_body(
                         if tool_name not in allowed_optional:
                             allowed_optional.append(tool_name)
                     if (
-                        (proj_ctx.filenames or proj_ctx.data_files)
-                        and "load_project_file" not in allowed_optional
-                    ):
+                        proj_ctx.filenames or proj_ctx.data_files
+                    ) and "load_project_file" not in allowed_optional:
                         allowed_optional.append("load_project_file")
                     if (
                         project_canvases
@@ -1070,7 +1069,9 @@ async def _thread_streaming_body(
                     # leaking across projects.
                     project_id = ""
             except Exception as e:
-                logger.warning(f"Thread: failed to hydrate project context (non-fatal): {e}")
+                logger.warning(
+                    f"Thread: failed to hydrate project context (non-fatal): {e}"
+                )
                 project_id = ""
 
         async for stream_part in agent.astream(
@@ -1108,9 +1109,9 @@ async def _thread_streaming_body(
                 if isinstance(chunk, AIMessageChunk) and chunk.usage_metadata:
                     u = chunk.usage_metadata
                     details = u.get("input_token_details", {})
-                    token_stats["input_tokens"] = token_stats.get(
-                        "input_tokens", 0
-                    ) + (u.get("input_tokens") or 0)
+                    token_stats["input_tokens"] = token_stats.get("input_tokens", 0) + (
+                        u.get("input_tokens") or 0
+                    )
                     token_stats["output_tokens"] = token_stats.get(
                         "output_tokens", 0
                     ) + (u.get("output_tokens") or 0)

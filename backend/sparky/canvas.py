@@ -10,7 +10,6 @@ it and stores as ToolMessage metadata.
 """
 
 import json
-import re
 import random
 import string
 
@@ -46,15 +45,23 @@ class CanvasChange(BaseModel):
     old_text: str = Field(
         ...,
         description=(
-            "The exact text to find in the canvas. "
-            "Use a short, distinctive phrase (5–15 words) that appears exactly once. "
-            "Do not include leading/trailing whitespace or newline characters. "
-            "Whitespace differences (newlines vs spaces) are handled automatically."
+            "The exact text to find in the canvas. Must match character-for-character — "
+            "including punctuation, casing, and whitespace — as it appears in the "
+            "[Canvas Context] block of your system prompt. Use a short, distinctive "
+            "phrase (5–15 words)."
         ),
     )
     new_text: str = Field(
         ...,
         description="The text to substitute in place of old_text.",
+    )
+    match_all: bool = Field(
+        default=False,
+        description=(
+            "When false (default), replace only the first occurrence of old_text. "
+            "When true, replace every occurrence. Use true for renames or global "
+            "substitutions; leave false for targeted single-location edits."
+        ),
     )
 
 
@@ -84,42 +91,6 @@ class UpdateCanvasArgs(BaseModel):
             except (json.JSONDecodeError, ValueError):
                 pass
         return values
-
-
-# Single-char-to-single-char normalization table (preserves string positions).
-# Applied to both old_text and canvas content before matching so that
-# typographic variants (em dashes, curly quotes, etc.) don't cause mismatches
-# regardless of whether the model or the editor produced them.
-_CHAR_NORM = str.maketrans(
-    {
-        "\u2018": "'",  # left single quote  → '
-        "\u2019": "'",  # right single quote → '
-        "\u201c": '"',  # left double quote  → "
-        "\u201d": '"',  # right double quote → "
-        "\u2013": "-",  # en dash            → -
-        "\u2014": "-",  # em dash            → -
-        "\u2026": ".",  # ellipsis           → .
-        "\u00a0": " ",  # non-breaking space → space
-        "\u00b7": ".",  # middle dot         → .
-    }
-)
-
-
-def _normalize_chars(text: str) -> str:
-    """Normalize typographic characters to ASCII equivalents."""
-    return text.translate(_CHAR_NORM)
-
-
-def _build_search_pattern(old_text: str) -> str:
-    """Convert plain old_text to a whitespace-flexible regex pattern.
-
-    Normalizes typographic characters, splits on whitespace, escapes each
-    token, and rejoins with \\s+ so the pattern matches regardless of spacing
-    style or typographic character variants.
-    """
-    normalized = _normalize_chars(old_text.strip())
-    tokens = re.split(r"\s+", normalized)
-    return r"\s+".join(re.escape(t) for t in tokens if t)
 
 
 def generate_canvas_id(tool_call_id: str = "") -> str:
@@ -237,7 +208,9 @@ ALL_CREATE_TOOLS = [
     name_or_callable="update_canvas",
     description=(
         "Update specific parts of an existing canvas by finding exact text and replacing it. "
-        "Pass plain text in old_text — no regex syntax needed."
+        "old_text must match the canvas content character-for-character (punctuation, casing, "
+        "whitespace) and must appear exactly once — copy it verbatim from the [Canvas Context] "
+        "block of your system prompt."
     ),
     args_schema=UpdateCanvasArgs,
 )
@@ -256,65 +229,40 @@ async def update_canvas(
     latest_version = canvas["versions"][canvas["latest_version_id"]]
     latest_content = latest_version["content"]
 
-    # Apply each change sequentially
+    # Apply each change sequentially — exact string match.
+    # match_all=False (default) replaces the first occurrence; True replaces all.
     matched_ranges = []
     current_content = latest_content
     for i, change in enumerate(changes):
-        if not change.old_text or not change.old_text.strip():
+        if not change.old_text:
             raise ToolException(f"Change {i + 1}: old_text is empty")
 
-        pattern = _build_search_pattern(change.old_text)
-
-        # Search against a char-normalized copy so typographic variants
-        # (em dashes, curly quotes, non-breaking spaces) don't cause mismatches.
-        # Since _normalize_chars is char-for-char, positions align with original.
-        normalized_content = _normalize_chars(current_content)
-
-        try:
-            matches = list(re.finditer(pattern, normalized_content))
-        except re.error as e:
-            raise ToolException(f"Change {i + 1}: failed to build search pattern: {e}")
-
-        if len(matches) > 1:
+        count = current_content.count(change.old_text)
+        if count == 0:
             raise ToolException(
-                f"Change {i + 1}: old_text matched {len(matches)} locations. "
-                f"Provide a longer, more distinctive old_text to match exactly one location."
+                f"Change {i + 1}: old_text not found. "
+                f"Copy it character-for-character from the [Canvas Context] block in "
+                f"your system prompt — including punctuation and whitespace."
             )
 
-        match = matches[0] if matches else None
-        if match is None:
-            # Try to find the first distinctive word to give useful diagnostics.
-            first_tokens = [
-                t
-                for t in re.split(r"\s+", _normalize_chars(change.old_text.strip()))
-                if t
-            ]
-            if first_tokens:
-                partial = re.search(re.escape(first_tokens[0]), normalized_content)
-                if partial:
-                    ctx_start = max(0, partial.start() - 10)
-                    ctx_end = min(len(normalized_content), partial.end() + 120)
-                    snippet = repr(normalized_content[ctx_start:ctx_end])
-                    raise ToolException(
-                        f"Change {i + 1}: first word found but full phrase didn't match. "
-                        f"Content near '{first_tokens[0]}': {snippet}. "
-                        f"Adjust old_text to match exactly what appears there."
-                    )
-                raise ToolException(
-                    f"Change {i + 1}: '{first_tokens[0]}' not found in canvas — "
-                    f"check that old_text matches the current canvas content exactly."
-                )
-            raise ToolException(f"Change {i + 1}: old_text did not match any content")
-
-        start_line = current_content[: match.start()].count("\n") + 1
-        end_line = current_content[: match.end()].count("\n") + 1
-        matched_ranges.append(f"{start_line}-{end_line}")
-        # Apply replacement to the original (non-normalized) content at matched positions.
-        current_content = (
-            current_content[: match.start()]
-            + change.new_text
-            + current_content[match.end() :]
-        )
+        if change.match_all:
+            # Record the range of the first occurrence for reporting, then replace all.
+            start = current_content.index(change.old_text)
+            end = start + len(change.old_text)
+            start_line = current_content[:start].count("\n") + 1
+            end_line = current_content[:end].count("\n") + 1
+            suffix = f" (+{count - 1} more)" if count > 1 else ""
+            matched_ranges.append(f"{start_line}-{end_line}{suffix}")
+            current_content = current_content.replace(change.old_text, change.new_text)
+        else:
+            start = current_content.index(change.old_text)
+            end = start + len(change.old_text)
+            start_line = current_content[:start].count("\n") + 1
+            end_line = current_content[:end].count("\n") + 1
+            matched_ranges.append(f"{start_line}-{end_line}")
+            current_content = (
+                current_content[:start] + change.new_text + current_content[end:]
+            )
 
     return {
         "canvas_id": canvas_id,

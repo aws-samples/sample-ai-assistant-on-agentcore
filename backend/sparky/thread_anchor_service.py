@@ -148,9 +148,7 @@ async def delete_session_anchors(session_id: str) -> List[Dict[str, Any]]:
     try:
         await asyncio.to_thread(_batch_delete)
     except ClientError as e:
-        logger.error(
-            f"thread_anchor_service.delete_session_anchors {session_id}: {e}"
-        )
+        logger.error(f"thread_anchor_service.delete_session_anchors {session_id}: {e}")
     return anchors
 
 

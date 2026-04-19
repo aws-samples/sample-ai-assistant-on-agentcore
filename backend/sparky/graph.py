@@ -514,12 +514,7 @@ def create_react_agent(
             # not pollute project long-term memory.
             from config import memory_store as _memory_store
 
-            if (
-                _memory_store
-                and ctx.project_id
-                and ctx.user_id
-                and not ctx.thread_mode
-            ):
+            if _memory_store and ctx.project_id and ctx.user_id and not ctx.thread_mode:
                 last_human_msg = (
                     filtered_messages[-1]
                     if filtered_messages

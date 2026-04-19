@@ -58,8 +58,6 @@ def _normalize_for_match(text: str) -> str:
     return " ".join(text.split())
 
 
-
-
 # System prompt for summary generation
 SUMMARY_SYSTEM_PROMPT = """You are a helpful assistant that generates very brief titles for chat conversations.
 Your task is to create a concise title (maximum 10 words) that captures the essence of the user's message.
@@ -423,7 +421,6 @@ class RequestHandlers:
                     logger.warning(f"Failed to fetch session state (non-fatal): {e}")
                 return {}
 
-
             async def _fetch_project_info():
                 """Look up bound project and its canvases."""
                 try:
@@ -725,9 +722,7 @@ class RequestHandlers:
             if turn_index is not None and not checkpoint_id:
                 fork_point = turn_index - 1
             else:
-                fork_point = (
-                    sum(1 for m in messages if isinstance(m, HumanMessage)) - 1
-                )
+                fork_point = sum(1 for m in messages if isinstance(m, HumanMessage)) - 1
 
             new_session_id = str(uuid.uuid4())
 
@@ -775,18 +770,18 @@ class RequestHandlers:
                         dst_ns="",
                     )
                     await put_anchor(
-                        {**a, "session_id": new_session_id, "thread_graph_id": dst_graph}
+                        {
+                            **a,
+                            "session_id": new_session_id,
+                            "thread_graph_id": dst_graph,
+                        }
                     )
                     return None
                 except Exception as e:
-                    logger.warning(
-                        f"Branch: failed to carry thread {tid}: {e}"
-                    )
+                    logger.warning(f"Branch: failed to carry thread {tid}: {e}")
                     return tid
 
-            failed = await asyncio.gather(
-                *(_carry_one(a) for a in carry_anchors)
-            )
+            failed = await asyncio.gather(*(_carry_one(a) for a in carry_anchors))
             skipped_thread_ids.extend(tid for tid in failed if tid)
 
             try:
@@ -1186,23 +1181,15 @@ class RequestHandlers:
         message_id = data.get("message_id")
 
         if turn_index is None or not isinstance(turn_index, int):
-            return error_envelope(
-                "validation_error", "turn_index (int) is required"
-            )
+            return error_envelope("validation_error", "turn_index (int) is required")
         if not content_sha256:
-            return error_envelope(
-                "validation_error", "content_sha256 is required"
-            )
+            return error_envelope("validation_error", "content_sha256 is required")
         if not prompt:
-            return error_envelope(
-                "validation_error", "prompt is required"
-            )
+            return error_envelope("validation_error", "prompt is required")
 
         try:
             agent = await agent_manager.get_agent()
-            config = {
-                "configurable": {"thread_id": session_id, "actor_id": user_id}
-            }
+            config = {"configurable": {"thread_id": session_id, "actor_id": user_id}}
             state = await agent.aget_state(config)
             if not state or not state.values.get("messages"):
                 return error_envelope("not_found", "Session has no messages")
@@ -1249,9 +1236,7 @@ class RequestHandlers:
             # crosses any formatting. turn_index + ai_message_index already
             # unambiguously identifies the target message, so drift detection
             # here would be theatrical rather than load-bearing.
-            target_text = _normalize_for_match(
-                extract_text_content(target_ai.content)
-            )
+            target_text = _normalize_for_match(extract_text_content(target_ai.content))
             quoted_norm = _normalize_for_match(quoted_text)
             if quoted_norm and quoted_norm not in target_text:
                 logger.debug(

@@ -26,7 +26,13 @@ def _deserialize(item: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     if item is None:
         return None
     return {
-        k: (int(v) if isinstance(v, Decimal) and v % 1 == 0 else float(v) if isinstance(v, Decimal) else v)
+        k: (
+            int(v)
+            if isinstance(v, Decimal) and v % 1 == 0
+            else float(v)
+            if isinstance(v, Decimal)
+            else v
+        )
         for k, v in item.items()
     }
 
@@ -48,6 +54,8 @@ async def list_anchors_for_session(session_id: str) -> List[Dict[str, Any]]:
                 break
             query_params["ExclusiveStartKey"] = last_key
     except ClientError as e:
-        logger.error(f"thread_anchor_service.list_anchors_for_session {session_id}: {e}")
+        logger.error(
+            f"thread_anchor_service.list_anchors_for_session {session_id}: {e}"
+        )
         return []
     return sorted(items, key=lambda a: a.get("created_at", ""))
