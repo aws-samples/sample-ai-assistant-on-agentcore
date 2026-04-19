@@ -520,11 +520,13 @@ _UPDATING_CANVAS_CONTENT = """
 Use update_canvas to modify specific parts of an existing canvas. The changes array takes one or more {old_text, new_text} pairs applied sequentially — no regex syntax, just plain text.
 
 Guidelines for old_text:
+- Copy old_text character-for-character from the [Canvas Context] block in your system prompt. Never reconstruct it from memory — even a single word difference will cause the match to fail.
 - Use a short, distinctive phrase (5–15 words) that appears exactly once in the canvas.
 - Do not include leading/trailing whitespace or newline characters.
 - Whitespace differences (newlines vs spaces) are handled automatically by the tool.
 - Avoid special characters like em dashes, curly quotes, or ellipsis — use plain ASCII equivalents or shorter surrounding words instead.
 - If a match fails, shorten old_text to the most unique 3–5 words in the target region.
+- For repetitive content (poems with similar stanzas, code with repeated patterns): anchor your phrase across a structural boundary — end of the preceding block + start of the target — to guarantee uniqueness.
 
 For large rewrites, recreate the canvas with the appropriate create_* tool instead of chaining many updates.
 
