@@ -215,15 +215,22 @@ export default function SelectionMenu({
       if (!sel || sel.isCollapsed || sel.rangeCount === 0) return clear();
       if (!wrapper.contains(sel.anchorNode)) return clear();
       const range = sel.getRangeAt(0);
-      if (!wrapper.contains(range.startContainer) || !wrapper.contains(range.endContainer)) {
-        return clear();
+      // Chrome's triple-click / select-all often pushes endContainer to the
+      // start of the next sibling — outside this wrapper. Clip instead of
+      // bailing so the button still appears.
+      const clipped = range.cloneRange();
+      if (!wrapper.contains(clipped.startContainer)) {
+        clipped.setStart(wrapper, 0);
       }
-      const quoted = sel.toString();
+      if (!wrapper.contains(clipped.endContainer)) {
+        clipped.setEndAfter(wrapper.lastChild || wrapper);
+      }
+      const quoted = clipped.toString();
       if (!quoted.trim()) return clear();
       if (quoted === lastQuoted) return;
       lastQuoted = quoted;
 
-      const rect = range.getBoundingClientRect();
+      const rect = clipped.getBoundingClientRect();
       const wrapperText = wrapper.innerText || wrapper.textContent || "";
       const startOffset = wrapperText.indexOf(quoted);
       const endOffset = startOffset >= 0 ? startOffset + quoted.length : -1;

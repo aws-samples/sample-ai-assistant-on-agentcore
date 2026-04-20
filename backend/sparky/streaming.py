@@ -1000,9 +1000,12 @@ async def _thread_streaming_body(
                 yield {"end": True}
                 return
 
-        # Default budget for threads = 0 (no thinking) — keep side-conversations cheap.
+        # Default budget for threads = 2 (medium effort). budget_level=0 omits
+        # the `thinking` field entirely for adaptive-reasoning models, which
+        # causes them to emit inline <thinking> XML in text chunks instead of
+        # separate reasoning_content blocks.
         agent = await agent_manager.get_agent(
-            budget_level=0,
+            budget_level=2,
             model_id=model_id,
             agent_mode="normal",
             user_id=user_id,
