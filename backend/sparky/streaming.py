@@ -7,7 +7,7 @@ from langchain_core.messages import ToolMessage, AIMessageChunk, AIMessage
 from langgraph.types import Command
 from models import InvocationRequest
 from agent_manager import agent_manager
-from graph import SparkyContext, CANVAS_TOOL_NAMES
+from graph import SparkyContext, CANVAS_TOOL_NAMES, THREAD_DISABLED_TOOLS
 from cancellation_handler import handle_cancellation, is_tool_call, get_tool_call_id
 from canvas_stream_parser import CanvasStreamParser
 from citation_helpers import build_citation_markers
@@ -32,6 +32,7 @@ from code_interpreter import code_interpreter_client, CodeInterpreterError
 from browser import browser_client
 from kb_event_publisher import get_kb_event_publisher, extract_text_content
 from chat_history_service import chat_history_service
+from thread_keys import thread_graph_id_for, thread_stream_key  # noqa: F401 (re-exported)
 
 
 # Stream state type for tracking active streams with pub/sub support
@@ -55,9 +56,24 @@ _active_streams: Dict[str, StreamBuffer] = {}
 _current_tasks = {}
 
 
-def cancel_current_stream(session_id: str = None):
-    """Cancel the current streaming operation for a specific session or all sessions"""
+def cancel_current_stream(session_id: str = None, thread_id: str = None):
+    """Cancel the current streaming operation.
+
+    - (session_id, thread_id) -> cancel that specific thread stream.
+    - (session_id,)           -> cancel the main stream for that session.
+    - ()                      -> cancel every tracked stream.
+    """
     global _current_tasks
+
+    if session_id and thread_id:
+        key = thread_stream_key(session_id, thread_id)
+        if key in _current_tasks:
+            task = _current_tasks[key]
+            if not task.done():
+                task.cancel()
+                logger.debug(f"Cancelled thread stream: {key}")
+            return {"response": "stream_cancelled"}
+        return {"response": "no_active_stream"}
 
     if session_id and session_id in _current_tasks:
         task = _current_tasks[session_id]
@@ -82,9 +98,9 @@ def cancel_current_stream(session_id: str = None):
     return {"response": f"cancelled_{cancelled_count}_streams"}
 
 
-async def cancel_stream_async(session_id: str = None):
+async def cancel_stream_async(session_id: str = None, thread_id: str = None):
     """Async version to cancel the current streaming operation"""
-    return cancel_current_stream(session_id)
+    return cancel_current_stream(session_id, thread_id)
 
 
 def cleanup_finished_tasks():
@@ -905,6 +921,308 @@ class StreamingHandler:
                 }
 
         return {}
+
+
+async def _thread_streaming_body(
+    handler_instance: "StreamingHandler",
+    session_id: str,
+    user_id: str,
+    thread_id: str,
+    prompt: str,
+    model_id: Optional[str],
+):
+    """Run a thread-mode turn against the LangGraph agent and yield stream chunks.
+
+    Mirrors the minimum of handle_streaming_request: checkpoint targeting,
+    cancellation cleanup, and end-of-stream bookkeeping. Skips attachments,
+    project context, KB indexing, and interrupt resume — threads are plain
+    text sub-conversations with a blacklist of disallowed tools.
+    """
+    # Rate-limit: only one stream (main or thread) in-flight at a time.
+    if handler_instance._processing:
+        yield stream_error_chunk(
+            "rate_limit",
+            "Agent is currently processing another request. Please wait for it to complete.",
+        )
+        yield {"end": True}
+        return
+
+    cleanup_finished_tasks()
+    stream_key = thread_stream_key(session_id, thread_id)
+    thread_graph_id = thread_graph_id_for(session_id, thread_id)
+
+    global _current_tasks, _active_streams
+    current_task = asyncio.current_task()
+    _current_tasks[stream_key] = current_task
+
+    handler_instance._processing = True
+
+    response_buffer: list = []
+    cancelled = False
+    tool_messages: list = []
+    token_stats: dict = {}
+    seen_text_content = False
+    seen_live_endpoints: set = set()
+    agent = None
+
+    _active_streams[stream_key] = StreamState(
+        queue=Queue(),
+        chunks=[],
+        user_message=prompt,
+        started_at=time.time(),
+        completed=False,
+        error=None,
+    )
+
+    try:
+        # Validate model_id if caller provided one; otherwise ride default.
+        if model_id is not None:
+            from config import validate_model_id, ALLOWED_MODELS
+
+            if not validate_model_id(model_id):
+                yield stream_error_chunk(
+                    "validation_error",
+                    f"Invalid model_id: {model_id}. Allowed models: {ALLOWED_MODELS}",
+                    {"allowed_models": ALLOWED_MODELS},
+                )
+                yield {"end": True}
+                return
+
+        # Default budget for threads = 2 (medium effort). budget_level=0 omits
+        # the `thinking` field entirely for adaptive-reasoning models, which
+        # causes them to emit inline <thinking> XML in text chunks instead of
+        # separate reasoning_content blocks.
+        agent = await agent_manager.get_agent(
+            budget_level=2,
+            model_id=model_id,
+            agent_mode="normal",
+            user_id=user_id,
+        )
+
+        tmp_msg = {"messages": [{"role": "user", "content": prompt}]}
+
+        # Threads start with NO optional tools enabled. We only re-enable the
+        # project tools below when the parent session is bound to a project.
+        # Core tools (fetch_skill, manage_skill, execute_code, etc.) are not
+        # in OPTIONAL_TOOL_NAMES so they remain always-available.
+        allowed_optional: list[str] = []
+
+        # Inherit the parent session's project binding so threads share the
+        # project's KB, memory, files, and preferences. Without this, a thread
+        # spawned from a project-bound chat would have no knowledge of the
+        # project it's discussing.
+        project_id = ""
+        project_name = ""
+        project_description = ""
+        project_files: list = []
+        project_data_files: list = []
+        project_canvases: list = []
+        project_preferences = ""
+        try:
+            from chat_history_service import chat_history_service
+
+            project_id = await chat_history_service.get_project_id(session_id) or ""
+        except Exception as e:
+            logger.warning(f"Thread: failed to resolve parent project (non-fatal): {e}")
+
+        if project_id:
+            try:
+                from project_context import get_project_context
+                from project_preference_loader import get_project_preferences
+
+                proj_ctx = await get_project_context(project_id, user_id)
+                if proj_ctx:
+                    project_name = proj_ctx.name
+                    project_description = proj_ctx.description
+                    project_files = proj_ctx.filenames
+                    project_data_files = proj_ctx.data_files
+                    project_canvases = proj_ctx.canvases
+                    project_preferences = await get_project_preferences(
+                        project_id, user_id
+                    )
+                    for tool_name in (
+                        "search_project_knowledge_base",
+                        "recall_project_memory",
+                    ):
+                        if tool_name not in allowed_optional:
+                            allowed_optional.append(tool_name)
+                    if (
+                        proj_ctx.filenames or proj_ctx.data_files
+                    ) and "load_project_file" not in allowed_optional:
+                        allowed_optional.append("load_project_file")
+                    if (
+                        project_canvases
+                        and "load_project_canvas" not in allowed_optional
+                    ):
+                        allowed_optional.append("load_project_canvas")
+                else:
+                    # Couldn't verify ownership — drop the binding rather than
+                    # leaking across projects.
+                    project_id = ""
+            except Exception as e:
+                logger.warning(
+                    f"Thread: failed to hydrate project context (non-fatal): {e}"
+                )
+                project_id = ""
+
+        async for stream_part in agent.astream(
+            tmp_msg,
+            {
+                "configurable": {
+                    "thread_id": thread_graph_id,
+                    "actor_id": user_id,
+                },
+                "recursion_limit": 200,
+            },
+            stream_mode=["messages", "updates", "custom"],
+            version="v2",
+            context=SparkyContext(
+                user_id=user_id or "",
+                session_id=session_id or "",
+                enabled_tools=allowed_optional,
+                disabled_tools=list(THREAD_DISABLED_TOOLS),
+                model_id=model_id,
+                thread_mode=True,
+                project_id=project_id,
+                project_name=project_name,
+                project_description=project_description,
+                project_files=project_files,
+                project_data_files=project_data_files,
+                project_canvases=project_canvases,
+                project_preferences=project_preferences,
+            ),
+        ):
+            mode = stream_part["type"]
+            data = stream_part["data"]
+
+            if mode == "messages":
+                chunk = data[0]
+                if isinstance(chunk, AIMessageChunk) and chunk.usage_metadata:
+                    u = chunk.usage_metadata
+                    details = u.get("input_token_details", {})
+                    token_stats["input_tokens"] = token_stats.get("input_tokens", 0) + (
+                        u.get("input_tokens") or 0
+                    )
+                    token_stats["output_tokens"] = token_stats.get(
+                        "output_tokens", 0
+                    ) + (u.get("output_tokens") or 0)
+                    token_stats["cache_creation_input_tokens"] = token_stats.get(
+                        "cache_creation_input_tokens", 0
+                    ) + (details.get("cache_creation") or 0)
+                    token_stats["cache_read_input_tokens"] = token_stats.get(
+                        "cache_read_input_tokens", 0
+                    ) + (details.get("cache_read") or 0)
+
+            chunk_data = handler_instance._process_stream_data(
+                mode, data, session_id, seen_live_endpoints
+            )
+            if chunk_data:
+                if (
+                    not seen_text_content
+                    and isinstance(chunk_data, dict)
+                    and chunk_data.get("type") == "text"
+                ):
+                    stripped = chunk_data["content"].lstrip("\n")
+                    if not stripped:
+                        continue
+                    chunk_data = {**chunk_data, "content": stripped}
+                    seen_text_content = True
+                elif isinstance(chunk_data, dict) and chunk_data.get("type") in (
+                    "text",
+                    "think",
+                ):
+                    seen_text_content = True
+
+                if isinstance(chunk_data, list):
+                    for chunk in chunk_data:
+                        yield chunk
+                        if stream_key in _active_streams:
+                            _active_streams[stream_key]["chunks"].append(chunk)
+                            await _active_streams[stream_key]["queue"].put(chunk)
+                else:
+                    yield chunk_data
+                    if stream_key in _active_streams:
+                        _active_streams[stream_key]["chunks"].append(chunk_data)
+                        await _active_streams[stream_key]["queue"].put(chunk_data)
+
+            if mode == "messages":
+                if (
+                    isinstance(data[0], AIMessageChunk)
+                    and len(data[0].content) > 0
+                    and is_tool_call(data[0].content[0])
+                    and not get_tool_call_id(data[0].content[0])
+                ):
+                    continue
+                else:
+                    response_buffer.append(data[0])
+
+    except asyncio.CancelledError:
+        logger.debug(f"Thread stream cancelled: {stream_key}")
+        cancelled = True
+        try:
+            # Reuse main-chat cancellation logic by passing the thread's
+            # LangGraph thread_id as `session_id` — the only thing
+            # handle_cancellation does with it is route the state write.
+            tool_messages = await handle_cancellation(
+                response_buffer,
+                session_id=thread_graph_id,
+                agent=agent,
+                user_id=user_id,
+                agent_manager=agent_manager,
+            )
+        except Exception as e:
+            logger.error(f"Thread cancellation cleanup failed: {e}")
+
+    except Exception as e:
+        log_error(e)
+        yield stream_error_chunk(
+            "agent_error", "An internal error occurred. Please try again."
+        )
+
+    finally:
+        if stream_key in _current_tasks:
+            del _current_tasks[stream_key]
+
+        if stream_key in _active_streams:
+            stream_state = _active_streams[stream_key]
+            stream_state["completed"] = True
+            if cancelled:
+                stream_state["error"] = "Stream cancelled by user"
+            await stream_state["queue"].put({"end": True})
+
+        if cancelled:
+            for tool_msg in tool_messages:
+                yield tool_msg
+
+        end_marker: dict = {"end": True, "thread_id": thread_id}
+        if token_stats:
+            end_marker["token_stats"] = token_stats
+        try:
+            if agent and user_id:
+                final_config = {
+                    "configurable": {
+                        "thread_id": thread_graph_id,
+                        "actor_id": user_id,
+                    }
+                }
+                final_state = await agent.aget_state(final_config)
+                cp_id = (
+                    final_state.config.get("configurable", {}).get("checkpoint_id")
+                    if final_state and final_state.config
+                    else None
+                )
+                if cp_id:
+                    end_marker["checkpoint_id"] = cp_id
+        except Exception as e:
+            logger.debug(f"Could not fetch thread checkpoint_id for end marker: {e}")
+
+        yield end_marker
+
+        await asyncio.sleep(0.1)
+        if stream_key in _active_streams:
+            del _active_streams[stream_key]
+
+        handler_instance._processing = False
 
 
 # Global streaming handler instance

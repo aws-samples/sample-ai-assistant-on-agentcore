@@ -48,7 +48,16 @@ const buildTokenPopover = (stats) => {
 };
 
 const ChatButtons = React.memo(
-  ({ content, messageRef, webSources = [], sessionId, turnIndex, checkpointId, tokenStats }) => {
+  ({
+    content,
+    messageRef,
+    webSources = [],
+    sessionId,
+    turnIndex,
+    checkpointId,
+    tokenStats,
+    hideBranch = false,
+  }) => {
     const [feedback, setFeedback] = useState("");
     const [branching, setBranching] = useState(false);
     const navigate = useNavigate();
@@ -145,13 +154,17 @@ const ChatButtons = React.memo(
               text: "Copy",
               popoverFeedback: <StatusIndicator type="success">Message copied</StatusIndicator>,
             },
-            {
-              type: "icon-button",
-              id: "branch",
-              iconName: branching ? "loader" : "git-branch",
-              text: "Branch",
-              disabled: branching,
-            },
+            ...(hideBranch
+              ? []
+              : [
+                  {
+                    type: "icon-button",
+                    id: "branch",
+                    iconName: branching ? "loader" : "git-branch",
+                    text: "Branch",
+                    disabled: branching,
+                  },
+                ]),
             ...(tokenStats
               ? [
                   {

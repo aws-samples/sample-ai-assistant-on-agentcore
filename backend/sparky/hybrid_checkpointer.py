@@ -274,3 +274,67 @@ class CachedCheckpointer(BaseCheckpointSaver[str]):
                 key,
                 e,
             )
+
+    async def acopy_checkpoint_ns(
+        self,
+        src_actor_id: str,
+        src_thread_id: str,
+        src_ns: str,
+        dst_actor_id: str,
+        dst_thread_id: str,
+        dst_ns: str,
+    ) -> int:
+        """Copy every checkpoint under (src_actor_id, src_thread_id, src_ns)
+        into (dst_actor_id, dst_thread_id, dst_ns).
+
+        Used when branching a session — each thread_anchor on the source
+        session points at a namespaced sub-conversation whose checkpoints
+        must be carried over to the new session.
+
+        Returns the number of checkpoints copied.
+        """
+        src_config: RunnableConfig = {
+            "configurable": {
+                "actor_id": src_actor_id,
+                "thread_id": src_thread_id,
+                "checkpoint_ns": src_ns,
+            }
+        }
+
+        collected: list[CheckpointTuple] = []
+        async for cp_tuple in self.primary.alist(src_config):
+            collected.append(cp_tuple)
+
+        # alist yields newest → oldest; replay oldest → newest so parent_config
+        # references remain valid in the destination.
+        collected.reverse()
+
+        copied = 0
+        for cp_tuple in collected:
+            dst_config: RunnableConfig = {
+                "configurable": {
+                    "actor_id": dst_actor_id,
+                    "thread_id": dst_thread_id,
+                    "checkpoint_ns": dst_ns,
+                }
+            }
+            try:
+                await self.primary.aput(
+                    dst_config,
+                    cp_tuple.checkpoint,
+                    cp_tuple.metadata or {},
+                    {},
+                )
+                copied += 1
+            except Exception as e:
+                logger.warning(
+                    "[CachedCheckpointer] acopy_checkpoint_ns: failed to put "
+                    "checkpoint id=%s to dst=%s: %s",
+                    cp_tuple.checkpoint.get("id"),
+                    (dst_actor_id, dst_thread_id, dst_ns),
+                    e,
+                )
+
+        # Destination has fresh state — clear any stale cached data for its key.
+        self.invalidate_session(dst_actor_id, dst_thread_id, dst_ns)
+        return copied

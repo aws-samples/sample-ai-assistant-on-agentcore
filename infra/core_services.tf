@@ -75,6 +75,7 @@ resource "aws_bedrockagentcore_agent_runtime" "core_services" {
     PROJECT_FILES_TABLE        = aws_dynamodb_table.project_files.id,
     PROJECTS_S3_BUCKET         = aws_s3_bucket.projects_bucket.id,
     PROJECT_CANVASES_TABLE     = aws_dynamodb_table.project_canvases.id,
+    THREAD_ANCHORS_TABLE       = aws_dynamodb_table.thread_anchors.id,
     PROJECTS_KB_ID             = aws_bedrockagent_knowledge_base.projects_kb.id,
     PROJECTS_KB_DATA_SOURCE_ID = aws_bedrockagent_data_source.projects_kb_source.data_source_id,
     PROJECT_MEMORY_ID          = aws_bedrockagentcore_memory.project_memory.id,
@@ -552,6 +553,17 @@ resource "aws_iam_role_policy" "core_services_projects_dynamodb_policy" {
         Resource = [
           aws_dynamodb_table.project_canvases.arn,
           "${aws_dynamodb_table.project_canvases.arn}/index/*"
+        ]
+      },
+      {
+        Sid    = "ThreadAnchorsTableReadAccess"
+        Effect = "Allow"
+        Action = [
+          "dynamodb:Query"
+        ]
+        Resource = [
+          aws_dynamodb_table.thread_anchors.arn,
+          "${aws_dynamodb_table.thread_anchors.arn}/index/*"
         ]
       }
     ]

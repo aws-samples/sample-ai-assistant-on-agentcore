@@ -517,20 +517,25 @@ When creating draw.io architecture diagrams:
 _UPDATING_CANVAS_CONTENT = """
 <updating_canvas_content>
 
-Use update_canvas to modify specific parts of an existing canvas. The changes array takes one or more {old_text, new_text} pairs applied sequentially — no regex syntax, just plain text.
+Use update_canvas to modify specific parts of an existing canvas. The changes array takes one or more {old_text, new_text} pairs applied sequentially. Matching is a pure exact string match — whatever you put in old_text must be present verbatim in the canvas.
 
 Guidelines for old_text:
-- Use a short, distinctive phrase (5–15 words) that appears exactly once in the canvas.
-- Do not include leading/trailing whitespace or newline characters.
-- Whitespace differences (newlines vs spaces) are handled automatically by the tool.
-- Avoid special characters like em dashes, curly quotes, or ellipsis — use plain ASCII equivalents or shorter surrounding words instead.
-- If a match fails, shorten old_text to the most unique 3–5 words in the target region.
+- Copy old_text character-for-character from the [Canvas Context] block in your system prompt — including punctuation, casing, and whitespace. Never reconstruct from memory.
+- Prefer a short, distinctive single-line phrase (5–15 words) that appears exactly once. Short single-line matches are the most reliable.
+- If the canvas content contains literal \\n sequences (two characters: a backslash followed by n) rather than real line breaks, reproduce them the same way in old_text. Whatever you see in [Canvas Context] is what the matcher sees.
+- For repetitive content (poems with similar stanzas, code with repeated patterns), pick a phrase that includes a locally unique token rather than spanning multiple lines.
+- If a match fails, shorten old_text to the most unique 3–5 words from the target region.
+
+Each change also accepts an optional match_all boolean (default false). Leave it false for targeted single-location edits — only the first occurrence is replaced. Set it to true for renames or global substitutions where every occurrence should change.
 
 For large rewrites, recreate the canvas with the appropriate create_* tool instead of chaining many updates.
 
 Example call:
   canvas_id: "abc12345"
-  changes: [{"old_text": "Hello world", "new_text": "Hi there"}, {"old_text": "old footer text", "new_text": "new footer text"}]
+  changes: [
+    {"old_text": "Hello world", "new_text": "Hi there"},
+    {"old_text": "oldName", "new_text": "newName", "match_all": true}
+  ]
 
 </updating_canvas_content>"""
 

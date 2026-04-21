@@ -179,7 +179,9 @@ async def invoke(request: InvocationRequest, http_request: Request):
         return handlers.handle_ping()
 
     if request_type == "stop":
-        return await cancel_stream_async(session_id)
+        # Optional thread_id -> target a specific thread's stream.
+        stop_thread_id = request.input.get("thread_id")
+        return await cancel_stream_async(session_id, stop_thread_id)
 
     if request_type == "tools":
         return error_envelope(
@@ -265,6 +267,19 @@ async def invoke(request: InvocationRequest, http_request: Request):
         return await handlers.handle_delete_project_canvas(
             request.input, user_sub, session_id
         )
+
+    # Threads — side-conversations anchored to AI message spans.
+    if request_type == "thread_create":
+        return await handlers.handle_thread_create(request, session_id, user_sub)
+
+    if request_type == "thread_message":
+        return await handlers.handle_thread_message(request, session_id, user_sub)
+
+    if request_type == "thread_fetch":
+        return await handlers.handle_thread_fetch(request, session_id, user_sub)
+
+    if request_type == "thread_delete":
+        return await handlers.handle_thread_delete(request, session_id, user_sub)
 
     # Return error for unknown request types
     # Note: Synchronous API requests (chat_history, tool_config, search, mcp operations)

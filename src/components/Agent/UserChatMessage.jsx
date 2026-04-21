@@ -48,8 +48,8 @@ const UserChatMessage = React.memo(({ message, attachments, user }) => {
     >
       <MessageAvatar
         isUser={true}
-        firstName={user.given_name}
-        surname={user.family_name}
+        firstName={user?.given_name}
+        surname={user?.family_name}
         loading={false}
       />
 

@@ -427,6 +427,7 @@ export const fetchSessionHistory = async (sessionId) => {
   return {
     history: data?.history || [],
     canvases: data?.canvases || {},
+    threadAnchors: data?.thread_anchors || [],
     boundProject: data?.project ?? null,
   };
 };
@@ -524,7 +525,7 @@ export const sendMessageAPI = async (
   return response;
 };
 
-export const stopAPI = async (sessionId) => {
+export const stopAPI = async (sessionId, threadId = null) => {
   const token = await getAuthToken();
 
   const response = await fetch(SPARKY_ENDPOINT, {
@@ -537,6 +538,7 @@ export const stopAPI = async (sessionId) => {
     body: JSON.stringify({
       input: {
         type: "stop",
+        ...(threadId && { thread_id: threadId }),
       },
     }),
   });
@@ -549,6 +551,102 @@ export const stopAPI = async (sessionId) => {
   throwIfErrorEnvelope(data);
   return data;
 };
+
+/**
+ * Shared POST to the Sparky endpoint, scoped to a parent session header.
+ * `parseAs` = "json" (default) throws Error_Envelope payloads; "stream"
+ * returns the raw Response for SSE consumption.
+ */
+async function postToSparky(sessionId, input, { parseAs = "json", errorLabel = "request" } = {}) {
+  const token = await getAuthToken();
+  const response = await fetch(SPARKY_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": createSparkySessionHeader(sessionId),
+    },
+    body: JSON.stringify({ input }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new Error(
+      `Failed to ${errorLabel} (${response.status}): ${errorText || "Unknown error"}`
+    );
+  }
+
+  if (parseAs === "stream") return response;
+
+  const data = await response.json();
+  throwIfErrorEnvelope(data);
+  return data;
+}
+
+/**
+ * Create a new thread (side-conversation) anchored to a span of an AI message.
+ * Reuses the parent session's AgentCore header — threads inherit ownership/ACL
+ * from their parent, disambiguated server-side by a per-thread LangGraph thread_id.
+ */
+export const sendThreadCreateAPI = async ({
+  sessionId,
+  turnIndex,
+  aiMessageIndex = 0,
+  quotedText,
+  startOffset,
+  endOffset,
+  prompt,
+  title = null,
+  messageId = null,
+}) =>
+  postToSparky(
+    sessionId,
+    {
+      type: "thread_create",
+      turn_index: turnIndex,
+      ai_message_index: aiMessageIndex,
+      quoted_text: quotedText,
+      start_offset: startOffset,
+      end_offset: endOffset,
+      prompt,
+      ...(title && { title }),
+      ...(messageId && { message_id: messageId }),
+    },
+    { errorLabel: "create thread" }
+  );
+
+/**
+ * Send a follow-up message to an existing thread. Returns a streaming Response
+ * with the same SSE envelope as sendMessageAPI. Server ignores any client-
+ * supplied enabled_tools — thread tool policy is server-authoritative.
+ */
+export const sendThreadMessageAPI = async ({ sessionId, threadId, prompt, config = null }) =>
+  postToSparky(
+    sessionId,
+    {
+      type: "thread_message",
+      thread_id: threadId,
+      prompt,
+      ...(config?.model_id && { model_id: config.model_id }),
+    },
+    { parseAs: "stream", errorLabel: "send thread message" }
+  );
+
+/** Fetch a thread's messages + anchor. */
+export const fetchThreadAPI = async ({ sessionId, threadId }) =>
+  postToSparky(
+    sessionId,
+    { type: "thread_fetch", thread_id: threadId },
+    { errorLabel: "fetch thread" }
+  );
+
+/** Delete a thread, cancelling any in-flight stream and invalidating checkpoints. */
+export const deleteThreadAPI = async ({ sessionId, threadId }) =>
+  postToSparky(
+    sessionId,
+    { type: "thread_delete", thread_id: threadId },
+    { errorLabel: "delete thread" }
+  );
 
 /**
  * Search across indexed chat conversations using hybrid search.

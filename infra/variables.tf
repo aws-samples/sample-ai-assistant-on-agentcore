@@ -63,7 +63,7 @@ variable "sparky_models" {
         reasoning_type = "effort"
         budget_mapping = {}
         effort_mapping = { "1" = "low", "2" = "medium", "3" = "high", "4" = "xhigh", "5" = "max" }
-        beta_flags     = []
+        beta_flags     = ["fine-grained-tool-streaming-2025-05-14"]
       },
       {
         id             = "claude-sonnet-4.6"

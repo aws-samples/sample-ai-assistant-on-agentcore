@@ -100,6 +100,52 @@ html.dark .chat-input-container {
   background: hsl(0 0% 14.9%);
 }
 
+/*
+ * Thread mode — no tool toggles, no attach button. Collapse the layout so the
+ * textarea sits on the same row as the send/stop button by default, and grows
+ * into a second row only when the content wraps (the textarea's auto-resize
+ * handles height; flex-wrap on the container makes the button drop below once
+ * the textarea gets taller than the button).
+ */
+.chat-input-container.thread-mode {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 10px 16px;
+  border-radius: 22px;
+}
+
+.chat-input-container.thread-mode .chat-textarea {
+  flex: 1 1 auto;
+  min-height: 32px;
+  padding: 0;
+  line-height: 32px;
+  font-size: 14px;
+}
+
+.chat-input-container.thread-mode .button-row {
+  width: auto;
+  flex: 0 0 auto;
+  align-self: flex-end;
+}
+
+.chat-input-container.thread-mode .optional-buttons {
+  display: none;
+}
+
+.chat-input-container.thread-mode .send-button,
+.chat-input-container.thread-mode .stop-button {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+}
+
+.chat-input-container.thread-mode .send-button svg,
+.chat-input-container.thread-mode .stop-button svg {
+  width: 16px;
+  height: 16px;
+}
+
 .chat-textarea {
   width: 100%;
   background: transparent;

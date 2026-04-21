@@ -69,6 +69,10 @@ const ChatInput = ({
   onSelectProject = () => {},
   onUnbindProject = () => {},
   onDeleteProjectCanvas = () => {},
+  // When truthy, render in "thread mode": strip prepareSession debouncing,
+  // attachments, and tool/canvas/browser toggles. The parent is expected to
+  // wire onSendMessage to a thread-specific handler.
+  threadMode = false,
 }) => {
   const [message, setMessage] = useState("");
   const [toggleStates, setToggleStates] = useState({});
@@ -202,8 +206,10 @@ const ChatInput = ({
     setOpenDropdownId((current) => (current === id ? null : id));
   }, []);
 
-  // Prepare session
+  // Prepare session (no-op in thread mode — threads don't maintain the
+  // parent session's model / tool prefs independently)
   const prepareSession = useCallback(async () => {
+    if (threadMode) return;
     if (preparingRef.current) return;
     preparingRef.current = true;
     try {
@@ -214,7 +220,7 @@ const ChatInput = ({
     } finally {
       preparingRef.current = false;
     }
-  }, [functions, currentSessionId, processedThinkingBudget]);
+  }, [functions, currentSessionId, processedThinkingBudget, threadMode]);
 
   // Skip prepareSession on first mount
   useEffect(() => {
@@ -486,7 +492,7 @@ const ChatInput = ({
       {/* Validation errors now shown via toast notifications */}
 
       <div
-        className={`chat-input-container ${effectiveTheme} ${isDragging ? "dragging" : ""}`}
+        className={`chat-input-container ${effectiveTheme} ${isDragging ? "dragging" : ""} ${threadMode ? "thread-mode" : ""}`}
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
         onDragOver={handleDragOver}
@@ -553,72 +559,75 @@ const ChatInput = ({
         />
         <div className="button-row">
           <div className="optional-buttons">
-            <button
-              ref={(el) => (buttonRefs.current["attach"] = el)}
-              className={`action-button ${openDropdownId === "attach" ? "dropdown-open" : ""}`}
-              onClick={() => toggleDropdown("attach")}
-              disabled={disabled || isStreaming}
-              title="Attach"
-              aria-label="Attach"
-            >
-              <span className="button-main-content">
-                <span className="action-icon">
-                  <Plus size={18} />
-                </span>
-              </span>
-            </button>
-
-            {actionButtons.map((button, index) => {
-              const isToggled = button.isToggle && toggleStates[button.id];
-              const isDropdownOpen = openDropdownId === button.id;
-              const isActive = button.alwaysActive || isToggled;
-
-              return (
-                <button
-                  key={button.id || index}
-                  ref={(el) => (buttonRefs.current[button.id] = el)}
-                  className={`action-button ${button.isToggle || button.alwaysActive ? "toggle-button" : ""} ${isActive ? "toggled" : ""} ${isDropdownOpen ? "dropdown-open" : ""}`}
-                  onClick={() => handleToggleButton(button)}
-                  disabled={button.disabled || disabled || isStreaming}
-                  title={button.title}
-                  data-theme={effectiveTheme}
-                >
-                  <span className="button-main-content">
-                    {button.icon && <span className="action-icon">{button.icon}</span>}
-                    {button.label && <span className="button-label">{button.label}</span>}
+            {!threadMode && (
+              <button
+                ref={(el) => (buttonRefs.current["attach"] = el)}
+                className={`action-button ${openDropdownId === "attach" ? "dropdown-open" : ""}`}
+                onClick={() => toggleDropdown("attach")}
+                disabled={disabled || isStreaming}
+                title="Attach"
+                aria-label="Attach"
+              >
+                <span className="button-main-content">
+                  <span className="action-icon">
+                    <Plus size={18} />
                   </span>
-                  {((button.isToggle && isToggled) || button.alwaysActive) &&
-                    button.showDropdown && (
-                      <>
-                        <span className="button-separator"></span>
-                        <span
-                          className="dropdown-arrow"
-                          onClick={(e) => handleDropdownClick(button, e)}
-                        >
-                          <svg
-                            viewBox="0 0 24 24"
-                            width="14"
-                            height="14"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            style={{
-                              transform: isDropdownOpen ? "rotate(180deg)" : "rotate(0deg)",
-                              transition: "transform 0.2s ease",
-                            }}
-                          >
-                            <path d="M6 9l6 6 6-6" />
-                          </svg>
-                        </span>
-                      </>
-                    )}
-                </button>
-              );
-            })}
+                </span>
+              </button>
+            )}
 
-            {deepAgentEnabled && (
+            {!threadMode &&
+              actionButtons.map((button, index) => {
+                const isToggled = button.isToggle && toggleStates[button.id];
+                const isDropdownOpen = openDropdownId === button.id;
+                const isActive = button.alwaysActive || isToggled;
+
+                return (
+                  <button
+                    key={button.id || index}
+                    ref={(el) => (buttonRefs.current[button.id] = el)}
+                    className={`action-button ${button.isToggle || button.alwaysActive ? "toggle-button" : ""} ${isActive ? "toggled" : ""} ${isDropdownOpen ? "dropdown-open" : ""}`}
+                    onClick={() => handleToggleButton(button)}
+                    disabled={button.disabled || disabled || isStreaming}
+                    title={button.title}
+                    data-theme={effectiveTheme}
+                  >
+                    <span className="button-main-content">
+                      {button.icon && <span className="action-icon">{button.icon}</span>}
+                      {button.label && <span className="button-label">{button.label}</span>}
+                    </span>
+                    {((button.isToggle && isToggled) || button.alwaysActive) &&
+                      button.showDropdown && (
+                        <>
+                          <span className="button-separator"></span>
+                          <span
+                            className="dropdown-arrow"
+                            onClick={(e) => handleDropdownClick(button, e)}
+                          >
+                            <svg
+                              viewBox="0 0 24 24"
+                              width="14"
+                              height="14"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              style={{
+                                transform: isDropdownOpen ? "rotate(180deg)" : "rotate(0deg)",
+                                transition: "transform 0.2s ease",
+                              }}
+                            >
+                              <path d="M6 9l6 6 6-6" />
+                            </svg>
+                          </span>
+                        </>
+                      )}
+                  </button>
+                );
+              })}
+
+            {!threadMode && deepAgentEnabled && (
               <ActiveModeButton
                 icon={<Zap size={16} />}
                 label="Research"
@@ -628,7 +637,7 @@ const ChatInput = ({
               />
             )}
 
-            {browserEnabled && (
+            {!threadMode && browserEnabled && (
               <ActiveModeButton
                 icon={<Monitor size={16} />}
                 label="Browser"
@@ -638,7 +647,7 @@ const ChatInput = ({
               />
             )}
 
-            {canvasEnabled && (
+            {!threadMode && canvasEnabled && (
               <ActiveModeButton
                 icon={<Paintbrush size={16} />}
                 label="Canvas"
@@ -648,7 +657,7 @@ const ChatInput = ({
               />
             )}
 
-            {boundProject && (
+            {!threadMode && boundProject && (
               <ActiveModeButton
                 icon={<FolderOpen size={16} />}
                 label={

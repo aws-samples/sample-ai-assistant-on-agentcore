@@ -116,7 +116,8 @@
     "remark-math": "^6.0.0",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",
-    "tiptap-markdown": "^0.9.0"
+    "tiptap-markdown": "^0.9.0",
+    "vaul": "^1.1.2"
   },
   "overrides": {
     "@types/react": "^18.3.3",
