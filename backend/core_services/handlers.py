@@ -51,8 +51,6 @@ async def generate_description_with_llm(message: str) -> Optional[str]:
         Generated description string or None if generation fails
     """
     try:
-        import asyncio
-
         # Prepare the request for Bedrock Converse API
         request = {
             "modelId": MODEL_ID,
@@ -516,14 +514,23 @@ class RequestHandlers:
 
             # Fetch history + thread anchors concurrently. Thread anchors
             # live in a dedicated DDB table (not LangGraph state) so they
-            # can't corrupt the parent session's checkpoint.
-            import asyncio
+            # can't corrupt the parent session's checkpoint. A thread-anchor
+            # fetch failure must not prevent the history itself from loading,
+            # so swallow it after logging and fall back to an empty list.
             from thread_anchor_service import list_anchors_for_session
 
             history, thread_anchors = await asyncio.gather(
                 get_history(history_graph, session_id, user_id),
                 list_anchors_for_session(session_id),
+                return_exceptions=True,
             )
+            if isinstance(history, Exception):
+                raise history
+            if isinstance(thread_anchors, Exception):
+                logger.warning(
+                    f"Thread anchor fetch failed for session {session_id} (non-fatal): {thread_anchors}"
+                )
+                thread_anchors = []
 
             history_data = history.get("history", []) if history else []
             canvases_data = history.get("canvases", {}) if history else {}
@@ -2018,8 +2025,6 @@ class RequestHandlers:
 
     @staticmethod
     async def handle_delete_project(user_id: str, project_id: str) -> JSONResponse:
-        import asyncio
-
         try:
             if not project_id:
                 return error_envelope("validation_error", "project_id is required")
@@ -2534,7 +2539,6 @@ class RequestHandlers:
     async def handle_list_project_canvases(
         user_id: str, project_id: str
     ) -> JSONResponse:
-        import asyncio
         import boto3
         from config import REGION, PROJECT_CANVASES_TABLE
 
@@ -2589,7 +2593,6 @@ class RequestHandlers:
     async def handle_delete_project_canvas(
         user_id: str, project_id: str, canvas_id: str
     ) -> JSONResponse:
-        import asyncio
         import boto3
         from botocore.exceptions import ClientError
         from config import REGION, PROJECT_CANVASES_TABLE, PROJECTS_S3_BUCKET
@@ -2641,7 +2644,6 @@ class RequestHandlers:
     async def handle_list_project_memories(
         user_id: str, project_id: str
     ) -> JSONResponse:
-        import asyncio
         from config import project_memory_store
 
         try:
@@ -2719,7 +2721,6 @@ class RequestHandlers:
     async def handle_delete_project_memory(
         user_id: str, project_id: str, memory_record_id: str
     ) -> JSONResponse:
-        import asyncio
         from config import project_memory_store
 
         try:

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
@@ -34,6 +35,7 @@ from utils import logger
 
 REGION = os.environ.get("REGION", "us-east-1")
 THREAD_ANCHORS_TABLE = os.environ.get("THREAD_ANCHORS_TABLE")
+EXPIRY_DURATION_DAYS = int(os.environ.get("EXPIRY_DURATION_DAYS", "365"))
 
 _dynamodb = boto3.resource("dynamodb", region_name=REGION)
 _table = _dynamodb.Table(THREAD_ANCHORS_TABLE) if THREAD_ANCHORS_TABLE else None
@@ -64,14 +66,25 @@ def _deserialize(item: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
 
 
 async def put_anchor(anchor: Dict[str, Any]) -> None:
-    """Insert or overwrite an anchor. `anchor` must include session_id and thread_id."""
+    """Insert or overwrite an anchor. `anchor` must include session_id and thread_id.
+
+    Stamps `expiry_ttl` if absent so anchors age out on the same schedule as the
+    parent session's checkpoints (see the DynamoDB table's TTL setting)."""
     _ensure_table()
     if not anchor.get("session_id") or not anchor.get("thread_id"):
         raise ValueError("anchor must include session_id and thread_id")
+    if "expiry_ttl" not in anchor:
+        anchor = {
+            **anchor,
+            "expiry_ttl": int(time.time()) + (EXPIRY_DURATION_DAYS * 86400),
+        }
     await asyncio.to_thread(_table.put_item, Item=_serialize(anchor))
 
 
 async def get_anchor(session_id: str, thread_id: str) -> Optional[Dict[str, Any]]:
+    """Fetch a single anchor. DynamoDB errors are logged and surfaced as
+    `None` — callers treat the result as "not found", so make sure failures
+    are visible in CloudWatch instead of silently masked."""
     _ensure_table()
     try:
         resp = await asyncio.to_thread(
@@ -79,8 +92,9 @@ async def get_anchor(session_id: str, thread_id: str) -> Optional[Dict[str, Any]
             Key={"session_id": session_id, "thread_id": thread_id},
         )
     except ClientError as e:
-        logger.error(
-            f"thread_anchor_service.get_anchor failed for {session_id}/{thread_id}: {e}"
+        logger.warning(
+            f"thread_anchor_service.get_anchor {session_id}/{thread_id} "
+            f"failed (returning None): {e}"
         )
         return None
     return _deserialize(resp.get("Item"))
@@ -149,55 +163,5 @@ async def delete_session_anchors(session_id: str) -> List[Dict[str, Any]]:
         await asyncio.to_thread(_batch_delete)
     except ClientError as e:
         logger.error(f"thread_anchor_service.delete_session_anchors {session_id}: {e}")
+        raise
     return anchors
-
-
-async def copy_session_anchors(
-    source_session_id: str,
-    dest_session_id: str,
-    thread_graph_id_rewriter,
-    filter_fn=None,
-) -> List[Dict[str, Any]]:
-    """Copy anchors from one session to another (used by branch).
-
-    `thread_graph_id_rewriter(old_graph_id, thread_id) -> new_graph_id`
-        so the caller can point each copied anchor at a freshly copied
-        checkpoint namespace.
-    `filter_fn(anchor) -> bool` lets the caller drop anchors whose turn_index
-        is past the fork point, for example.
-
-    Returns the list of anchors written to the destination.
-    """
-    _ensure_table()
-    src_anchors = await list_anchors_for_session(source_session_id)
-    if not src_anchors:
-        return []
-
-    copied: List[Dict[str, Any]] = []
-    for src in src_anchors:
-        if filter_fn and not filter_fn(src):
-            continue
-        new_anchor = dict(src)
-        new_anchor["session_id"] = dest_session_id
-        new_anchor["thread_graph_id"] = thread_graph_id_rewriter(
-            src.get("thread_graph_id"), src["thread_id"]
-        )
-        copied.append(new_anchor)
-
-    if not copied:
-        return []
-
-    def _batch_put() -> None:
-        with _table.batch_writer() as batch:
-            for a in copied:
-                batch.put_item(Item=_serialize(a))
-
-    try:
-        await asyncio.to_thread(_batch_put)
-    except ClientError as e:
-        logger.error(
-            f"thread_anchor_service.copy_session_anchors "
-            f"{source_session_id} -> {dest_session_id}: {e}"
-        )
-        return []
-    return copied

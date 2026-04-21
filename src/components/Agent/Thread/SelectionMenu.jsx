@@ -1,9 +1,8 @@
-import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { MessageCirclePlus } from "lucide-react";
 import { ChatSessionDataContext, ChatSessionFunctionsContext } from "../ChatContext";
 import { THREAD_DRAFT_ID } from "../useChatSessionFunctions";
-import { sha256Hex } from "./sha256";
 
 /**
  * Wraps an AI message's text block. When the user highlights text inside it,
@@ -258,13 +257,11 @@ export default function SelectionMenu({
     };
   }, [enabled]);
 
-  const handleAskSparky = useCallback(async () => {
+  const handleAskSparky = useCallback(() => {
     if (!selection || !functions) return;
-    const contentSha256 = await sha256Hex(textSource || "");
     functions.setDraftThread(sessionId, {
       turnIndex,
       aiMessageIndex,
-      contentSha256,
       quotedText: selection.quoted,
       startOffset: selection.startOffset,
       endOffset: selection.endOffset,
@@ -274,7 +271,7 @@ export default function SelectionMenu({
     setButtonPos(null);
     setSelection(null);
     window.getSelection()?.removeAllRanges();
-  }, [selection, functions, sessionId, turnIndex, aiMessageIndex, messageId, textSource]);
+  }, [selection, functions, sessionId, turnIndex, aiMessageIndex, messageId]);
 
   return (
     <>

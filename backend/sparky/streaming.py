@@ -32,6 +32,7 @@ from code_interpreter import code_interpreter_client, CodeInterpreterError
 from browser import browser_client
 from kb_event_publisher import get_kb_event_publisher, extract_text_content
 from chat_history_service import chat_history_service
+from thread_keys import thread_graph_id_for, thread_stream_key  # noqa: F401 (re-exported)
 
 
 # Stream state type for tracking active streams with pub/sub support
@@ -53,19 +54,6 @@ _active_streams: Dict[str, StreamBuffer] = {}
 
 # Global task tracking
 _current_tasks = {}
-
-
-def thread_stream_key(session_id: str, thread_id: str) -> str:
-    """Key under which a thread stream registers in `_active_streams`."""
-    return f"{session_id}::thread::{thread_id}"
-
-
-def thread_graph_id_for(session_id: str, thread_id: str) -> str:
-    """LangGraph thread_id for a Thread's checkpoints. Not using
-    checkpoint_ns — that's reserved for subgraphs and fails with
-    "Subgraph X not found" if set to an arbitrary value.
-    """
-    return f"thread_{session_id}_{thread_id}"
 
 
 def cancel_current_stream(session_id: str = None, thread_id: str = None):

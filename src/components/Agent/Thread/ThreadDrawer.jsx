@@ -1,9 +1,8 @@
-import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import {
   Drawer,
   DrawerClose,
   DrawerContent,
-  DrawerDescription,
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
@@ -67,7 +66,11 @@ export default function ThreadDrawer({ sessionId, user = null }) {
       setIsLoading(true);
       functions
         .fetchThread(sessionId, activeThreadId)
-        .catch(() => {})
+        .catch((err) => {
+          // Swallowed so the drawer stays open — the error is surfaced via
+          // threadSession.error, rendered inline below.
+          console.error(`Failed to load thread ${activeThreadId}:`, err);
+        })
         .finally(() => setIsLoading(false));
     }
   }, [open, activeThreadId, threadSession, threadTurns.length, functions, sessionId]);

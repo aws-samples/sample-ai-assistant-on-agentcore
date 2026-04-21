@@ -27,6 +27,8 @@ from streaming import (
     _active_streams,
     _thread_streaming_body,
     streaming_handler,
+)
+from thread_keys import (
     thread_stream_key,
     thread_graph_id_for as _thread_checkpoint_thread_id,
 )
@@ -761,7 +763,7 @@ class RequestHandlers:
                 src_graph = _thread_checkpoint_thread_id(source_session_id, tid)
                 dst_graph = _thread_checkpoint_thread_id(new_session_id, tid)
                 try:
-                    await checkpointer.acopy_checkpoint_ns(
+                    copied = await checkpointer.acopy_checkpoint_ns(
                         src_actor_id=user_id,
                         src_thread_id=src_graph,
                         src_ns="",
@@ -769,6 +771,14 @@ class RequestHandlers:
                         dst_thread_id=dst_graph,
                         dst_ns="",
                     )
+                    # No checkpoints copied → the anchor would point at an
+                    # empty thread graph. Skip it so the new session doesn't
+                    # surface a broken thread.
+                    if not copied:
+                        logger.warning(
+                            f"Branch: thread {tid} skipped — no checkpoints copied"
+                        )
+                        return tid
                     await put_anchor(
                         {
                             **a,
@@ -1160,8 +1170,6 @@ class RequestHandlers:
           - turn_index: int           — zero-based turn index of the target AI message
           - ai_message_index: int     — index into the AI message list (in case there
                                          are multiple AI messages in one turn)
-          - content_sha256: str       — hash of the target AI message content
-                                         (rejected if mismatched, to catch drift)
           - quoted_text: str          — the exact substring the user highlighted
           - start_offset: int         — char offset of quote start in message content
           - end_offset: int           — char offset of quote end
@@ -1172,7 +1180,6 @@ class RequestHandlers:
         data = request.input or {}
         turn_index = data.get("turn_index")
         ai_message_index = data.get("ai_message_index", 0)
-        content_sha256 = data.get("content_sha256")
         quoted_text = data.get("quoted_text", "")
         start_offset = data.get("start_offset")
         end_offset = data.get("end_offset")
@@ -1182,8 +1189,6 @@ class RequestHandlers:
 
         if turn_index is None or not isinstance(turn_index, int):
             return error_envelope("validation_error", "turn_index (int) is required")
-        if not content_sha256:
-            return error_envelope("validation_error", "content_sha256 is required")
         if not prompt:
             return error_envelope("validation_error", "prompt is required")
 
@@ -1291,7 +1296,6 @@ class RequestHandlers:
                 "turn_index": turn_index,
                 "ai_message_index": ai_message_index,
                 "message_id": message_id,
-                "content_sha256": content_sha256,
                 "start_offset": start_offset,
                 "end_offset": end_offset,
                 "quoted_text": quoted_text,
@@ -1454,7 +1458,7 @@ class RequestHandlers:
                 try:
                     await checkpointer.adelete_thread(thread_graph_id)
                 except Exception as e:
-                    logger.debug(f"Thread checkpoint cleanup failed: {e}")
+                    logger.warning(f"Thread checkpoint cleanup failed: {e}")
 
             await asyncio.gather(
                 delete_anchor(session_id, thread_id),

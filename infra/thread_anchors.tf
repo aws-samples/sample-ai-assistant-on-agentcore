@@ -59,6 +59,11 @@ resource "aws_dynamodb_table" "thread_anchors" {
     }
   }
 
+  ttl {
+    attribute_name = "expiry_ttl"
+    enabled        = true
+  }
+
   point_in_time_recovery {
     enabled = true
   }

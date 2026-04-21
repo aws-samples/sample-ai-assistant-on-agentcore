@@ -638,7 +638,6 @@ export const useChatSessionFunctions = (props) => {
       sessionId,
       turnIndex,
       aiMessageIndex = 0,
-      contentSha256,
       quotedText,
       startOffset,
       endOffset,
@@ -653,7 +652,6 @@ export const useChatSessionFunctions = (props) => {
           sessionId,
           turnIndex,
           aiMessageIndex,
-          contentSha256,
           quotedText,
           startOffset,
           endOffset,
@@ -838,15 +836,11 @@ export const useChatSessionFunctions = (props) => {
      * the checkpoints.
      */
     const deleteThread = async (sessionId, threadId) => {
-      const tsid = threadSessionId(sessionId, threadId);
-      try {
-        await deleteThreadAPI({ sessionId, threadId });
-      } catch (err) {
-        console.error(`Failed to delete thread ${threadId}:`, err);
-        // Still drop local state — best-effort parity with server.
-      }
+      // Hit the server first; only drop local state on success so the UI
+      // doesn't desync from persisted data when the request fails.
+      await deleteThreadAPI({ sessionId, threadId });
 
-      // Tear down the synthetic session's refs + subscription.
+      const tsid = threadSessionId(sessionId, threadId);
       const refs = sessionRefs.current.get(tsid);
       if (refs?._streamAbortController) refs._streamAbortController.abort();
       removeSession(tsid);
