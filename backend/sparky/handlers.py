@@ -183,7 +183,11 @@ class RequestHandlers:
                 return error_envelope("validation_error", f"File '{name}' exceeds maximum size")
 
             file_id = str(uuid.uuid4())
-            s3_key = f"attachments/{user_id}/{session_id}/{file_id}/{name}"
+            # Sanitize provided filename to avoid path traversal or unsafe chars
+            import re
+            safe_name = os.path.basename(name)
+            safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", safe_name)
+            s3_key = f"attachments/{user_id}/{session_id}/{file_id}/{safe_name}"
 
             upload_url = s3_client.generate_presigned_url(
                 "put_object",

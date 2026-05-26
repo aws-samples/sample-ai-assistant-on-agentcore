@@ -57,7 +57,8 @@ class Attachment:
     type: str  # MIME type
     size: int
     data: str  # Base64 encoded content
-    s3_key: str = None  # Optional S3 key 
+    s3_key: str = None  # Optional S3 key
+    id: str = None  # Stable identifier for routing decisions
 
 
 @dataclass
@@ -381,7 +382,7 @@ def build_ci_notification_block(attachment: Attachment) -> dict:
 
 
 def build_content_blocks(
-    text: str, attachments: List[Attachment], force_ci_names=None
+    text: str, attachments: List[Attachment], force_ci_ids=None
 ) -> tuple[List[dict], List[Attachment]]:
     """
     Build a list of LLM-compatible content blocks from text and attachments.
@@ -406,15 +407,25 @@ def build_content_blocks(
     ci_bound_attachments: List[Attachment] = []
 
     for attachment in attachments:
+        # Route images: show inline image block and also notify CI
         if attachment.type in ALLOWED_IMAGE_TYPES:
             content_blocks.append(build_image_content_block(attachment))
             content_blocks.append(build_ci_notification_block(attachment))
             ci_bound_attachments.append(attachment)
+        # Spreadsheets always go to CI
         elif is_spreadsheet_type(attachment.type):
             content_blocks.append(build_ci_notification_block(attachment))
             ci_bound_attachments.append(attachment)
+        # Documents: either native document block or CI notification
         elif attachment.type in ALLOWED_DOCUMENT_TYPES:
-            if is_large_document(attachment) or (force_ci_names and attachment.name in force_ci_names):
+            # force_ci_ids contains stable identifiers (attachment.id or s3_key)
+            should_force_ci = False
+            if force_ci_ids:
+                # attachment.id preferred, fallback to s3_key
+                key = attachment.id or attachment.s3_key
+                should_force_ci = key in force_ci_ids
+
+            if is_large_document(attachment) or should_force_ci:
                 content_blocks.append(build_ci_notification_block(attachment))
                 ci_bound_attachments.append(attachment)
             else:

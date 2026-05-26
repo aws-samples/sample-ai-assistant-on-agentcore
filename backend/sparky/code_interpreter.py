@@ -155,18 +155,60 @@ class CodeInterpreterClient:
 
     async def upload_files_from_urls(self, ci_session_id, files):
         """For large files — CI downloads directly from S3 presigned GET URL."""
-        import json
-        code_lines = ["import os, urllib.request"]
-        for f in files:
-            code_lines.append(f"os.makedirs(os.path.dirname({json.dumps(f['path'])}), exist_ok=True)")
-            code_lines.append(f"urllib.request.urlretrieve({json.dumps(f['url'])}, {json.dumps(f['path'])})")
-        code_lines.append(f"print('DOWNLOADED_{len(files)}_FILES')")
-        
-        script = "\n".join(code_lines)
-        response = await self.execute_code(ci_session_id, script)
-        if getattr(response, 'error', None):
-            raise CodeInterpreterError(f"Failed to upload files from URLs: {response.error}")
-        return True
+        try:
+            import json
+
+            code_lines = ["import os, urllib.request"]
+            for f in files:
+                code_lines.append(
+                    f"os.makedirs(os.path.dirname({json.dumps(f['path'])}), exist_ok=True)"
+                )
+                code_lines.append(
+                    f"urllib.request.urlretrieve({json.dumps(f['url'])}, {json.dumps(f['path'])})"
+                )
+            code_lines.append(f"print('DOWNLOADED_{len(files)}_FILES')")
+
+            script = "\n".join(code_lines)
+
+            response = await asyncio.to_thread(
+                lambda: self._client.invoke_code_interpreter(
+                    codeInterpreterIdentifier=CODE_INTERPRETER_ID,
+                    sessionId=ci_session_id,
+                    name="executeCode",
+                    arguments={"language": "python", "code": script},
+                )
+            )
+
+            # Parse response stream similar to upload_data_files
+            stdout_parts: list[str] = []
+            stderr_parts: list[str] = []
+            for event in response.get("stream", []):
+                if "result" not in event:
+                    continue
+                result = event["result"]
+                for content_item in result.get("content", []):
+                    if content_item.get("type") == "text":
+                        stdout_parts.append(content_item.get("text", ""))
+                    elif content_item.get("type") == "error":
+                        stderr_parts.append(content_item.get("text", ""))
+
+            stdout = "\n".join(stdout_parts)
+            stderr = "\n".join(stderr_parts)
+
+            if stderr:
+                raise CodeInterpreterError(f"Failed to download files from URLs: {stderr}")
+
+            expected_marker = f"DOWNLOADED_{len(files)}_FILES"
+            if expected_marker not in stdout:
+                error_detail = stdout or stderr or "unknown error"
+                raise CodeInterpreterError(f"Failed to download files from URLs: {error_detail}")
+
+            return True
+        except CodeInterpreterError:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to download files from URLs: {e}")
+            raise CodeInterpreterError(f"Failed to download files from URLs: {e}") from e
 
     async def upload_data_files(self, ci_session_id: str, files: list[dict]) -> None:
         """Write data files into the CI session using executeCode.

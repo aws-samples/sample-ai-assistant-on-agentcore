@@ -22,7 +22,15 @@ resource "aws_s3_bucket_cors_configuration" "artifact_bucket_cors" {
   bucket = aws_s3_bucket.artifact_bucket.id
 
   cors_rule {
-    allowed_headers = ["*"]
+    allowed_headers = [
+      "Content-Type",
+      "Content-Length",
+      "Content-Encoding",
+      "x-amz-content-sha256",
+      "x-amz-date",
+      "x-amz-security-token",
+      "x-amz-user-agent"
+    ]
     allowed_methods = [
       "GET",
       "POST",

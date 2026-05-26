@@ -373,8 +373,16 @@ const ChatInput = ({
           );
         }
 
-        // MERGE: small have data, large have s3_key
-        messageData.attachments = [...encodedSmall, ...uploadedLarge];
+        // MERGE: small have data, large have s3_key — preserve original attachment order
+        const encodedSmallByFile = new Map(
+          smallFiles.map((attachment, index) => [attachment.file, encodedSmall[index]])
+        );
+        const uploadedLargeByFile = new Map(
+          largeFiles.map((attachment, index) => [attachment.file, uploadedLarge[index]])
+        );
+        messageData.attachments = attachedFiles
+          .map((attachment) => encodedSmallByFile.get(attachment.file) ?? uploadedLargeByFile.get(attachment.file))
+          .filter(Boolean);
       } catch (error) {
         console.error("Failed to process attachments:", error);
         toast.error(error.message || "Failed to upload file");
