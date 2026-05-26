@@ -4,8 +4,9 @@
 
 // ── Constants ──
 
-export const MAX_FILE_SIZE_BYTES = 4718592; // 4.5MB
-export const MAX_SPREADSHEET_SIZE_BYTES = 52428800; // 50MB
+export const MAX_FILE_SIZE_BYTES = 115343360; // 110MB
+export const MAX_SPREADSHEET_SIZE_BYTES = 115343360; // 110MB
+export const S3_UPLOAD_THRESHOLD = 4718592; // 4.5MB — files larger than this use S3 presigned upload
 
 export const SPREADSHEET_TYPES = [
   "text/csv",
@@ -79,8 +80,7 @@ export function getValidationErrorMessage(file) {
     return `File "${filename}": File type not supported. Allowed: ${exts}`;
   }
   if (result.error === "file_too_large") {
-    const limit = isSpreadsheetType(file.type) ? "50MB" : "4.5MB";
-    return `File "${filename}": File exceeds maximum size of ${limit}`;
+    return `File "${filename}": File exceeds maximum size of 110MB`;
   }
   return `File "${filename}": Validation failed`;
 }
@@ -92,7 +92,11 @@ export function isDocumentType(mimeType) {
   return ALLOWED_DOCUMENT_TYPES.includes(mimeType);
 }
 
-// ── Encoding ──
+export function shouldUseS3Upload(file) {
+  return isSpreadsheetType(file.type) || file.size > S3_UPLOAD_THRESHOLD;
+}
+
+// ── Encoding & Uploading ──
 
 export async function fileToBase64(file) {
   if (!file) throw new Error("No file provided");
@@ -124,4 +128,73 @@ export async function encodeAttachments(files) {
       return { name: file.name, type: file.type, size: file.size, data: base64Data };
     })
   );
+}
+
+export async function requestUploadUrls(files, opts) {
+  const { endpoint, token, sessionId } = opts;
+  const res = await fetch(`${endpoint}/invocations`, {
+    method: "POST",
+    
+    body: JSON.stringify({
+      input: {
+        type: "get_upload_urls",
+        files: files.map((f) => ({ name: f.name, type: f.type, size: f.size }))
+      }
+    }),
+    // AgentCore requires session id header
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": sessionId
+    },
+  });
+  if (!res.ok) {
+    throw new Error("Failed to request upload URLs");
+  }
+  const data = await res.json();
+  if (data.type === "error") {
+    throw new Error(data.message || "Failed to get upload URLs");
+  }
+  return data.files; // [{ upload_url, s3_key, index }]
+}
+
+export function uploadFileToS3(file, url, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url, true);
+    xhr.setRequestHeader("Content-Type", file.type);
+    
+    // Add AWS specific headers sometimes required for pre-signed PUTs, but let's stick to standard first
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) {
+        const percent = Math.round((e.loaded / e.total) * 100);
+        onProgress(percent);
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+      } else {
+        reject(new Error(`Upload failed with status ${xhr.status}`));
+      }
+    };
+    xhr.onerror = () => reject(new Error("Upload failed due to network error"));
+    xhr.send(file);
+  });
+}
+
+export async function uploadAttachments(files, opts) {
+  const { onProgress } = opts;
+  const urlData = await requestUploadUrls(files, opts);
+  
+  const results = [];
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const { upload_url, s3_key } = urlData.find((u) => u.index === i);
+    await uploadFileToS3(file, upload_url, (pct) => {
+      if (onProgress) onProgress(i, pct);
+    });
+    results.push({ name: file.name, type: file.type, size: file.size, s3_key });
+  }
+  return results;
 }

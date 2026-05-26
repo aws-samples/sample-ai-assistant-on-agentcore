@@ -152,6 +152,22 @@ class CodeInterpreterClient:
                 error_message=f"Code execution failed: {e}",
             )
 
+
+    async def upload_files_from_urls(self, ci_session_id, files):
+        """For large files — CI downloads directly from S3 presigned GET URL."""
+        import json
+        code_lines = ["import os, urllib.request"]
+        for f in files:
+            code_lines.append(f"os.makedirs(os.path.dirname({json.dumps(f['path'])}), exist_ok=True)")
+            code_lines.append(f"urllib.request.urlretrieve({json.dumps(f['url'])}, {json.dumps(f['path'])})")
+        code_lines.append(f"print('DOWNLOADED_{len(files)}_FILES')")
+        
+        script = "\n".join(code_lines)
+        response = await self.execute_code(ci_session_id, script)
+        if getattr(response, 'error', None):
+            raise CodeInterpreterError(f"Failed to upload files from URLs: {response.error}")
+        return True
+
     async def upload_data_files(self, ci_session_id: str, files: list[dict]) -> None:
         """Write data files into the CI session using executeCode.
 

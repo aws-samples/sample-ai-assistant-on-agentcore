@@ -1,3 +1,6 @@
+import boto3
+import base64
+import os
 import json
 import asyncio
 import time
@@ -302,116 +305,87 @@ class StreamingHandler:
                     validated_attachments = []
 
                     if attachments_data:
-                        # Validate all attachments
                         validation_result = validate_all_attachments(attachments_data)
                         if not validation_result.valid:
-                            # Return error response for invalid attachments
-                            yield stream_error_chunk(
-                                "attachment_error",
-                                validation_result.error,
-                                {
-                                    "filename": validation_result.filename,
-                                    "reason": validation_result.reason,
-                                    "allowed_types": list(ALLOWED_TYPES),
-                                },
-                            )
+                            yield stream_error_chunk("attachment_error", validation_result.error, {})
                             yield {"end": True}
                             return
 
-                        # Convert validated attachment dicts to Attachment objects
                         for att_dict in attachments_data:
-                            validated_attachments.append(
-                                Attachment(
-                                    name=att_dict["name"],
-                                    type=att_dict["type"],
-                                    size=att_dict["size"],
-                                    data=att_dict["data"],
-                                )
-                            )
+                            validated_attachments.append(Attachment(
+                                name=att_dict["name"],
+                                type=att_dict["type"],
+                                size=att_dict["size"],
+                                data=att_dict.get("data", ""),
+                                s3_key=att_dict.get("s3_key"),
+                            ))
 
-                    # Build content blocks (attachments first, then text last)
-                    prompt_text = request.input.get(
-                        "prompt", "No prompt found in input"
-                    )
+                    prompt_text = request.input.get("prompt", "No prompt found in input")
 
-                    # Classify attachments into routing categories
-                    spreadsheet_attachments = [
-                        a for a in validated_attachments if is_spreadsheet_type(a.type)
+                    s3_need_download = [
+                        a for a in validated_attachments
+                        if a.s3_key and not a.data
+                        and not is_spreadsheet_type(a.type)
+                        and not is_large_document(a)
                     ]
-                    image_attachments = [
-                        a
-                        for a in validated_attachments
-                        if a.type in ALLOWED_IMAGE_TYPES
-                    ]
+                    if s3_need_download:
+                        _s3 = boto3.client("s3", region_name=os.environ.get("REGION", "us-east-1"))
+                        _bucket = os.environ.get("S3_BUCKET", "")
+                        for att in s3_need_download:
+                            resp = await asyncio.to_thread(_s3.get_object, Bucket=_bucket, Key=att.s3_key)
+                            raw_bytes = resp["Body"].read()
+                            att.data = base64.b64encode(raw_bytes).decode("ascii")
+
+                    spreadsheet_attachments = [a for a in validated_attachments if is_spreadsheet_type(a.type)]
+                    image_attachments = [a for a in validated_attachments if a.type in ALLOWED_IMAGE_TYPES]
                     document_attachments = [
-                        a
-                        for a in validated_attachments
+                        a for a in validated_attachments
                         if a.type in ALLOWED_DOCUMENT_TYPES
                         and not is_spreadsheet_type(a.type)
                         and a.type not in ALLOWED_IMAGE_TYPES
                     ]
-                    large_doc_attachments = [
-                        d for d in document_attachments if is_large_document(d)
-                    ]
+                    large_doc_attachments = [d for d in document_attachments if is_large_document(d)]
 
-                    # Upload spreadsheets and large documents to CI (fatal on failure)
-                    ci_fatal_attachments = (
-                        spreadsheet_attachments + large_doc_attachments
-                    )
+                    small_doc_attachments = [d for d in document_attachments if not is_large_document(d)]
+                    if len(small_doc_attachments) >= 2:
+                        large_doc_attachments = document_attachments
+                        force_ci_names = {a.name for a in large_doc_attachments}
+                    else:
+                        force_ci_names = None
+
+                    ci_fatal_attachments = spreadsheet_attachments + large_doc_attachments
                     if ci_fatal_attachments:
-                        try:
-                            ci_session_id = (
-                                await code_interpreter_client.get_or_create_session(
-                                    session_id, user_id=user_id
-                                )
-                            )
-                            files_to_write = []
-                            for att in ci_fatal_attachments:
-                                files_to_write.append(
-                                    {
-                                        "path": f"/tmp/data/{att.name}",  # nosec B108
-                                        "data": att.data,
-                                    }
-                                )
-                            await code_interpreter_client.upload_data_files(
-                                ci_session_id, files_to_write
-                            )
-                        except CodeInterpreterError as e:
-                            logger.error(f"Failed to upload files to CI: {e}")
-                            yield stream_error_chunk(
-                                "agent_error",
-                                "Failed to upload data files to Code Interpreter.",
-                            )
-                            yield {"end": True}
-                            return
+                        ci_session_id = await code_interpreter_client.get_or_create_session(session_id, user_id=user_id)
 
-                    # Upload images to CI (non-fatal on failure)
+                        s3_ci_files = [a for a in ci_fatal_attachments if a.s3_key and not a.data]
+                        if s3_ci_files:
+                            _s3 = boto3.client("s3", region_name=os.environ.get("REGION", "us-east-1"))
+                            _bucket = os.environ.get("S3_BUCKET", "")
+                            url_files = []
+                            for att in s3_ci_files:
+                                get_url = _s3.generate_presigned_url(
+                                    "get_object",
+                                    Params={"Bucket": _bucket, "Key": att.s3_key},
+                                    ExpiresIn=900,
+                                )
+                                url_files.append({"path": f"/tmp/data/{att.name}", "url": get_url})
+                            await code_interpreter_client.upload_files_from_urls(ci_session_id, url_files)
+
+                        inline_ci_files = [a for a in ci_fatal_attachments if a.data]
+                        if inline_ci_files:
+                            files_to_write = [{"path": f"/tmp/data/{att.name}", "data": att.data} for att in inline_ci_files]
+                            await code_interpreter_client.upload_data_files(ci_session_id, files_to_write)
+
                     if image_attachments:
                         try:
-                            ci_session_id = (
-                                await code_interpreter_client.get_or_create_session(
-                                    session_id, user_id=user_id
-                                )
-                            )
-                            image_files_to_write = []
-                            for att in image_attachments:
-                                image_files_to_write.append(
-                                    {
-                                        "path": f"/tmp/data/{att.name}",  # nosec B108
-                                        "data": att.data,
-                                    }
-                                )
-                            await code_interpreter_client.upload_data_files(
-                                ci_session_id, image_files_to_write
-                            )
+                            ci_session_id = await code_interpreter_client.get_or_create_session(session_id, user_id=user_id)
+                            image_files_to_write = [{"path": f"/tmp/data/{att.name}", "data": att.data} for att in image_attachments]
+                            await code_interpreter_client.upload_data_files(ci_session_id, image_files_to_write)
                         except CodeInterpreterError as e:
-                            logger.warning(
-                                f"Failed to upload image files to CI, continuing with LLM image blocks: {e}"
-                            )
+                            logger.warning(f"Failed to upload image files to CI: {e}")
 
-                    # Build content blocks with all attachments — routing handled internally
                     content, ci_bound_attachments = build_content_blocks(
-                        prompt_text, validated_attachments
+                        prompt_text, validated_attachments, force_ci_names=force_ci_names
                     )
 
                     # Fetch conversation state once for first-message check and message_index

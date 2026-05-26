@@ -1,3 +1,6 @@
+import boto3
+import uuid
+import os
 import asyncio
 import json
 import uuid
@@ -151,6 +154,52 @@ def slice_messages_to_turn(messages: List[Any], turn_index: int) -> List[Any]:
 
 
 class RequestHandlers:
+
+    @staticmethod
+    async def handle_get_upload_urls(input_data, user_id, session_id):
+        """Generate presigned PUT URLs for direct S3 upload of large attachments."""
+        from attachment_processor import validate_file_type, validate_file_size
+        
+        files = input_data.get("files", [])
+        if not files or not isinstance(files, list):
+            return error_envelope("validation_error", "files list is required")
+
+        s3_bucket = os.environ.get("S3_BUCKET", "")
+        if not s3_bucket:
+            return error_envelope("internal_error", "S3 bucket not configured")
+
+        region = os.environ.get("REGION", "us-east-1")
+        s3_client = boto3.client("s3", region_name=region)
+
+        results = []
+        for i, file_meta in enumerate(files):
+            name = file_meta.get("name", "")
+            mime_type = file_meta.get("type", "")
+            size = file_meta.get("size", 0)
+
+            if not validate_file_type(mime_type):
+                return error_envelope("validation_error", f"Unsupported file type: {mime_type}")
+            if not validate_file_size(size, mime_type):
+                return error_envelope("validation_error", f"File '{name}' exceeds maximum size")
+
+            file_id = str(uuid.uuid4())
+            s3_key = f"attachments/{user_id}/{session_id}/{file_id}/{name}"
+
+            upload_url = s3_client.generate_presigned_url(
+                "put_object",
+                Params={"Bucket": s3_bucket, "Key": s3_key, "ContentType": mime_type},
+                ExpiresIn=900,
+            )
+            results.append({"upload_url": upload_url, "s3_key": s3_key, "index": i})
+
+        from fastapi.responses import JSONResponse
+        CORS_HEADERS = {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        }
+        return JSONResponse({"type": "upload_urls", "files": results}, headers=CORS_HEADERS)
+
     @staticmethod
     def handle_ping() -> JSONResponse:
         """Handle ping requests"""

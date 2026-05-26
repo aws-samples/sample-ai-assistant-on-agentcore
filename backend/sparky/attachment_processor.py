@@ -12,8 +12,9 @@ from typing import List, Optional, Set
 logger = logging.getLogger(__name__)
 
 # Constants for file validation
-MAX_FILE_SIZE_BYTES = 4718592  # 4.5MB in bytes
-MAX_SPREADSHEET_SIZE_BYTES = 52428800  # 50MB in bytes
+MAX_FILE_SIZE_BYTES = 115343360      # 110MB
+S3_UPLOAD_THRESHOLD = 4718592        # 4.5MB — routing boundary
+MAX_SPREADSHEET_SIZE_BYTES = 115343360 # 110MB
 
 ALLOWED_IMAGE_TYPES: Set[str] = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
@@ -56,6 +57,7 @@ class Attachment:
     type: str  # MIME type
     size: int
     data: str  # Base64 encoded content
+    s3_key: str = None  # Optional S3 key 
 
 
 @dataclass
@@ -98,7 +100,7 @@ def is_large_document(attachment: Attachment) -> bool:
         return False
     if is_spreadsheet_type(attachment.type):
         return False
-    return attachment.size > MAX_FILE_SIZE_BYTES
+    return attachment.size > S3_UPLOAD_THRESHOLD
 
 
 def get_max_file_size(mime_type: str) -> int:
@@ -379,7 +381,7 @@ def build_ci_notification_block(attachment: Attachment) -> dict:
 
 
 def build_content_blocks(
-    text: str, attachments: List[Attachment]
+    text: str, attachments: List[Attachment], force_ci_names=None
 ) -> tuple[List[dict], List[Attachment]]:
     """
     Build a list of LLM-compatible content blocks from text and attachments.
@@ -412,7 +414,7 @@ def build_content_blocks(
             content_blocks.append(build_ci_notification_block(attachment))
             ci_bound_attachments.append(attachment)
         elif attachment.type in ALLOWED_DOCUMENT_TYPES:
-            if is_large_document(attachment):
+            if is_large_document(attachment) or (force_ci_names and attachment.name in force_ci_names):
                 content_blocks.append(build_ci_notification_block(attachment))
                 ci_bound_attachments.append(attachment)
             else:

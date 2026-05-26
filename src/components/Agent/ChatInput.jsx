@@ -15,7 +15,9 @@ import {
   Paintbrush,
   FolderOpen,
 } from "lucide-react";
-import { validateAttachment, getValidationErrorMessage, encodeAttachments } from "./attachments";
+import { validateAttachment, getValidationErrorMessage, encodeAttachments, shouldUseS3Upload, uploadAttachments } from "./attachments";
+import { getAuthToken } from "./context/utils";
+import { SPARKY_ENDPOINT } from "./context/constants";
 import { getSelectedModelId } from "./ModelSelector";
 import { toast } from "sonner";
 
@@ -329,11 +331,53 @@ const ChatInput = ({
 
     if (attachedFiles.length > 0) {
       try {
-        setAttachedFiles((prev) => prev.map((f) => ({ ...f, status: "encoding" })));
-        messageData.attachments = await encodeAttachments(attachedFiles.map((f) => f.file));
+        // SPLIT: small files inline, large files via S3
+        const smallFiles = attachedFiles.filter((f) => !shouldUseS3Upload(f.file));
+        const largeFiles = attachedFiles.filter((f) => shouldUseS3Upload(f.file));
+
+        let encodedSmall = [];
+        let uploadedLarge = [];
+
+        // Encode small files to base64
+        if (smallFiles.length > 0) {
+          setAttachedFiles((prev) =>
+            prev.map((f) => shouldUseS3Upload(f.file) ? f : { ...f, status: "encoding" })
+          );
+          encodedSmall = await encodeAttachments(smallFiles.map((f) => f.file));
+        }
+
+        // Upload large files to S3 via presigned PUT
+        if (largeFiles.length > 0) {
+          setAttachedFiles((prev) =>
+            prev.map((f) =>
+              shouldUseS3Upload(f.file) ? { ...f, status: "uploading", uploadProgress: 0 } : f
+            )
+          );
+          const token = await getAuthToken();
+          uploadedLarge = await uploadAttachments(
+            largeFiles.map((f) => f.file),
+            {
+              endpoint: SPARKY_ENDPOINT,
+              token,
+              sessionId: currentSessionId,
+              onProgress: (fileIndex, pct) => {
+                setAttachedFiles((prev) =>
+                  prev.map((f) =>
+                    f.file === largeFiles[fileIndex].file
+                      ? { ...f, uploadProgress: pct }
+                      : f
+                  )
+                );
+              },
+            }
+          );
+        }
+
+        // MERGE: small have data, large have s3_key
+        messageData.attachments = [...encodedSmall, ...uploadedLarge];
       } catch (error) {
-        console.error("Failed to encode attachments:", error);
-        toast.error(error.message || "Failed to read file");
+        console.error("Failed to process attachments:", error);
+        toast.error(error.message || "Failed to upload file");
         setAttachedFiles((prev) =>
           prev.map((f) => ({ ...f, status: "error", error: error.message }))
         );
