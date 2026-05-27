@@ -41,6 +41,12 @@ export const IMAGE_RETRIEVAL_TOOLS = ["retrieve_images"];
 // Check if a tool is an image retrieval tool
 export const isImageRetrievalTool = (toolName) => IMAGE_RETRIEVAL_TOOLS.includes(toolName);
 
+// Sub-agent tool name (research-mode delegate)
+export const SUB_AGENT_TOOL = "sub_agent";
+
+// Check if a tool is the sub-agent tool
+export const isSubAgentTool = (toolName) => toolName === SUB_AGENT_TOOL;
+
 // Canvas tool names
 export const CANVAS_CREATE_TOOLS = [
   "create_document",

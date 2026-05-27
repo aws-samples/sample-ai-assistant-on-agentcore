@@ -10,6 +10,7 @@ testuser.json
 /dist
 /.pnp
 .pnp.js
+/kiro
 
 # testing
 /coverage

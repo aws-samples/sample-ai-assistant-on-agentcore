@@ -7,12 +7,15 @@ import {
   ChevronDown,
   ExternalLink,
   CircleCheck,
+  Bot,
+  PanelRightOpen,
 } from "lucide-react";
 import TextContent from "./TextContent";
 import RetrievedImages from "./RetrievedImages";
+import SubAgentDrawer from "./SubAgentDrawer";
 import { useTheme } from "../ThemeContext";
 import { buildTimelineSteps } from "./utils/timelineParser";
-import { getToolCategory, isImageRetrievalTool } from "./toolClassification";
+import { getToolCategory, isImageRetrievalTool, isSubAgentTool } from "./toolClassification";
 import { parseWebResults } from "./utils/parseWebResults";
 import "./UnifiedThinkingBlock.css";
 
@@ -30,6 +33,9 @@ const formatToolName = (toolName) => {
 };
 
 const getToolIcon = (toolName) => {
+  if (isSubAgentTool(toolName)) {
+    return <Bot size={18} className="timeline-icon tool-icon" />;
+  }
   const category = getToolCategory(toolName);
   switch (category) {
     case "web_search":
@@ -39,6 +45,63 @@ const getToolIcon = (toolName) => {
     default:
       return <ToolCase size={18} className="timeline-icon tool-icon" />;
   }
+};
+
+/**
+ * Coerce tool content (which may be an object, a JSON string, or a list of
+ * content blocks) into a plain markdown string suitable for rendering.
+ */
+const coerceToolText = (content) => {
+  if (content == null) return "";
+  if (typeof content === "string") {
+    // Tool messages from the backend often come as JSON-encoded strings;
+    // unwrap a top-level string if that's the case so markdown renders cleanly.
+    const trimmed = content.trim();
+    if (
+      (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("[") && trimmed.endsWith("]")) ||
+      (trimmed.startsWith("{") && trimmed.endsWith("}"))
+    ) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (typeof parsed === "string") return parsed;
+        if (Array.isArray(parsed)) {
+          return parsed
+            .map((b) => (typeof b === "string" ? b : (b?.text ?? "")))
+            .filter(Boolean)
+            .join("\n");
+        }
+        return JSON.stringify(parsed, null, 2);
+      } catch {
+        return content;
+      }
+    }
+    return content;
+  }
+  if (Array.isArray(content)) {
+    return content
+      .map((b) => (typeof b === "string" ? b : (b?.text ?? "")))
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (typeof content === "object") {
+    return JSON.stringify(content, null, 2);
+  }
+  return String(content);
+};
+
+const getSubAgentRequest = (input) => {
+  if (!input) return "";
+  if (typeof input === "string") {
+    try {
+      const parsed = JSON.parse(input);
+      return parsed?.request ?? "";
+    } catch {
+      return input;
+    }
+  }
+  if (typeof input === "object") return input.request ?? "";
+  return "";
 };
 
 /**
@@ -349,9 +412,73 @@ const ThinkingStep = memo(({ segments, isLast }) => {
 });
 
 /**
+ * SubAgentStep - Renders a sub-agent invocation with an "Open" button that
+ * pops a side drawer showing the request and the markdown response.
+ */
+const SubAgentStep = memo(({ step, isLast }) => {
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const request = useMemo(() => getSubAgentRequest(step.toolInput), [step.toolInput]);
+  const response = useMemo(
+    () => (step.isToolComplete && !step.toolError ? coerceToolText(step.toolContent) : ""),
+    [step.toolContent, step.isToolComplete, step.toolError]
+  );
+
+  const displayText = step.toolError
+    ? "Sub-agent failed"
+    : !step.isToolComplete
+      ? "Sub-agent thinking"
+      : "Sub-agent completed";
+
+  const canOpen = step.isToolComplete && !step.toolError && (request || response);
+
+  return (
+    <>
+      <div className={`timeline-item ${isLast ? "last" : ""}`}>
+        <div className="timeline-marker">
+          <Bot size={18} className="timeline-icon tool-icon" />
+        </div>
+        <div className="timeline-content">
+          <div className="tool-result-content">
+            <div className={`tool-result-header ${!step.isToolComplete ? "loading" : ""}`}>
+              <span className="tool-result-text">{displayText}</span>
+              {canOpen && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDrawerOpen(true);
+                  }}
+                  className="sub-agent-open-button"
+                  title="Open sub-agent transcript"
+                >
+                  <PanelRightOpen size={14} />
+                  <span>Open</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <SubAgentDrawer
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen}
+        request={request}
+        response={response}
+      />
+    </>
+  );
+});
+
+/**
  * ToolStep - Renders a tool step, or a ReportToolCard for generate_report
  */
 const ToolStep = memo(({ step, isLast }) => {
+  if (isSubAgentTool(step.toolName)) {
+    return <SubAgentStep step={step} isLast={isLast} />;
+  }
+
   if (step.toolName === "generate_download_link" && step.isToolComplete) {
     return (
       <div className={`timeline-item ${isLast ? "last" : ""}`}>
@@ -433,6 +560,9 @@ const UnifiedThinkingBlock = ({ contentBlocks = [], isGroupComplete = false }) =
       if (lastStep.type === "thinking") {
         return "Reasoning";
       }
+      if (isSubAgentTool(lastStep.toolName)) {
+        return "Sub-agent completed";
+      }
       const category = getToolCategory(lastStep.toolName);
       switch (category) {
         case "web_search":
@@ -447,6 +577,10 @@ const UnifiedThinkingBlock = ({ contentBlocks = [], isGroupComplete = false }) =
     // Not complete - show current activity based on last step
     if (lastStep.type === "thinking") {
       return "Reasoning";
+    }
+
+    if (isSubAgentTool(lastStep.toolName)) {
+      return lastStep.isToolComplete ? "Sub-agent completed" : "Sub-agent thinking";
     }
 
     // Last step is a tool - show based on its completion state

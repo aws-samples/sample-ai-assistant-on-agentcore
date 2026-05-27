@@ -81,6 +81,9 @@ def build_research_tools(base_tools: List[BaseTool]) -> List[BaseTool]:
     Includes:
     - review_progress tool (always included)
     - Web search tools (tavily_search, tavily_extract) if present
+    - sub_agent tool (research-mode only) — stateless delegate that has
+      Tavily by default and can opt into the parent's currently-active
+      MCP tools via a Literal[...]-typed `extra_tools` argument.
 
     Excludes:
     - Skill management tools (manage_skill)
@@ -93,6 +96,8 @@ def build_research_tools(base_tools: List[BaseTool]) -> List[BaseTool]:
 
     """
     from tools import review_progress
+    from sub_agent import create_sub_agent_tool
+    from mcp_lifecycle_manager import mcp_lifecycle_manager
 
     # Start with filtered tools (exclude skill tools)
     filtered_tools = filter_tools_for_research(base_tools)
@@ -104,6 +109,22 @@ def build_research_tools(base_tools: List[BaseTool]) -> List[BaseTool]:
     if "review_progress" not in tool_names:
         filtered_tools.append(review_progress)
         logger.debug("Added review_progress tool to Research Agent")
+
+    # Build sub_agent tool with the parent's active MCP tool names as the
+    # Literal allow-list for extra_tools. Sub-agent is research-mode only.
+    # The intersection of parent-active tools and the MCP runtime tool set
+    # gives us only those MCP tools the parent actually has access to right now.
+    mcp_universe = set(mcp_lifecycle_manager.runtime_tool_set.keys())
+    mcp_tool_names = [t.name for t in filtered_tools if t.name in mcp_universe]
+    sub_agent_tool = create_sub_agent_tool(filtered_tools, mcp_tool_names)
+    if sub_agent_tool is not None and sub_agent_tool.name not in {
+        t.name for t in filtered_tools
+    }:
+        filtered_tools.append(sub_agent_tool)
+        logger.debug(
+            "Added sub_agent tool to Research Agent (MCP allow-list: %d tools)",
+            len(mcp_tool_names),
+        )
 
     logger.debug(f"Research Agent tools: {[t.name for t in filtered_tools]}")
     return filtered_tools
