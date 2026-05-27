@@ -332,6 +332,26 @@
   transform: rotate(180deg);
 }
 
+.sub-agent-open-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  margin-left: 8px;
+  border: 1px solid var(--unified-border-color);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--unified-tool-text);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.sub-agent-open-button:hover {
+  background-color: var(--unified-bg-hover);
+}
+
 /* Animated expand/collapse for tool results */
 .tool-result-expand {
   display: grid;
