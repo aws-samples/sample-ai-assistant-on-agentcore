@@ -145,8 +145,18 @@ async def _ingest_to_project_memory(
             )
 
         # Save final AIMessage only — skip intermediate tool-calling steps.
-        # ModelResponse.result is list[BaseMessage]; fall back to [response] for bare AIMessage
-        result_msgs = getattr(response, "result", [response])
+        # Normalize the model response to a list of messages. `ModelResponse.result`
+        # should be a list[BaseMessage]; be defensive in case it's missing or not
+        # iterable and fall back to wrapping `response` as a single message.
+        result_msgs = getattr(response, "result", None)
+        if result_msgs is None:
+            result_msgs = [response]
+        else:
+            if not isinstance(result_msgs, (list, tuple)):
+                try:
+                    result_msgs = list(result_msgs)
+                except Exception:
+                    result_msgs = [response]
         ai_msg = next(
             (m for m in reversed(result_msgs) if isinstance(m, AIMessage)), None
         )

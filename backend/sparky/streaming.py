@@ -123,11 +123,6 @@ class StreamingHandler:
         # Canvas streaming state machine (extracted to dedicated module)
         self._canvas_parser = CanvasStreamParser()
 
-# Max inline image size (bytes). Images larger than this will not be read into
-# process memory inline; they will remain as s3_key references and be routed
-# to the Code Interpreter instead. Default: 2MB (configurable via env).
-INLINE_IMAGE_MAX_BYTES = int(os.environ.get("INLINE_IMAGE_MAX_BYTES", 2 * 1024 * 1024))
-
     @staticmethod
     def get_active_stream(session_id: str) -> dict:
         """
@@ -382,7 +377,9 @@ INLINE_IMAGE_MAX_BYTES = int(os.environ.get("INLINE_IMAGE_MAX_BYTES", 2 * 1024 *
                         for att in s3_need_download:
                             # Skip inlining very large images — prefer CI routing
                             if att.type in ALLOWED_IMAGE_TYPES and att.size > int(os.environ.get("INLINE_IMAGE_MAX_BYTES", 2 * 1024 * 1024)):
-                                logger.debug(f"Skipping inline download for image too large: {att.name} ({att.size} bytes)")
+                                logger.debug(
+                                    f"Skipping inline download for image too large: {att.id or att.s3_key} ({att.size} bytes)"
+                                )
                                 continue
                             try:
                                 resp = await asyncio.to_thread(_s3.get_object, Bucket=s3_bucket_env, Key=att.s3_key)
@@ -455,8 +452,15 @@ INLINE_IMAGE_MAX_BYTES = int(os.environ.get("INLINE_IMAGE_MAX_BYTES", 2 * 1024 *
                     if image_attachments:
                         try:
                             ci_session_id = await code_interpreter_client.get_or_create_session(session_id, user_id=user_id)
-                            image_files_to_write = [{"path": f"/tmp/data/{att.name}", "data": att.data} for att in image_attachments]
-                            await code_interpreter_client.upload_data_files(ci_session_id, image_files_to_write)
+                            image_files_to_write = []
+                            for att in image_attachments:
+                                if not att.data:
+                                    continue
+                                safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", os.path.basename(att.name))
+                                path = f"/tmp/data/{att.id or att.s3_key}_{safe_name}"
+                                image_files_to_write.append({"path": path, "data": att.data})
+                            if image_files_to_write:
+                                await code_interpreter_client.upload_data_files(ci_session_id, image_files_to_write)
                         except CodeInterpreterError as e:
                             logger.warning(f"Failed to upload image files to CI: {e}")
 
