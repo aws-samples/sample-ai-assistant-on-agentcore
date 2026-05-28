@@ -1,3 +1,6 @@
+import boto3
+import base64
+import os
 import json
 import asyncio
 import time
@@ -21,9 +24,11 @@ from utils import (
 from attachment_processor import (
     validate_all_attachments,
     build_content_blocks,
+    build_ci_path,
     is_spreadsheet_type,
     is_large_document,
     Attachment,
+    S3_UPLOAD_THRESHOLD,
     ALLOWED_TYPES,
     ALLOWED_IMAGE_TYPES,
     ALLOWED_DOCUMENT_TYPES,
@@ -113,8 +118,8 @@ def cleanup_finished_tasks():
 
 class StreamingHandler:
     def __init__(self):
-        # Guard: only one message processed at a time to prevent AI state corruption
-        self._processing = False
+        # Guard: track sessions currently being processed to prevent AI state corruption
+        self._processing_sessions: set = set()
         # Canvas streaming state machine (extracted to dedicated module)
         self._canvas_parser = CanvasStreamParser()
 
@@ -141,11 +146,11 @@ class StreamingHandler:
         # Clean up any finished tasks
         cleanup_finished_tasks()
 
-        # Only one message at a time to prevent AI message state corruption
-        if self._processing:
+        # Per-session processing guard to avoid blocking other sessions
+        if session_id in self._processing_sessions:
             yield stream_error_chunk(
                 "rate_limit",
-                "Agent is currently processing another request. Please wait for it to complete.",
+                "Agent is currently processing another request for this session. Please wait for it to complete.",
             )
             yield {"end": True}
             return
@@ -155,7 +160,8 @@ class StreamingHandler:
         global _current_tasks
         _current_tasks[session_id] = current_task
 
-        self._processing = True
+        # Mark this session as processing
+        self._processing_sessions.add(session_id)
         try:
             response_buffer = []
             cancelled = False
@@ -302,10 +308,9 @@ class StreamingHandler:
                     validated_attachments = []
 
                     if attachments_data:
-                        # Validate all attachments
                         validation_result = validate_all_attachments(attachments_data)
                         if not validation_result.valid:
-                            # Return error response for invalid attachments
+                            # Restore structured validation payload for clients
                             yield stream_error_chunk(
                                 "attachment_error",
                                 validation_result.error,
@@ -318,64 +323,142 @@ class StreamingHandler:
                             yield {"end": True}
                             return
 
-                        # Convert validated attachment dicts to Attachment objects
+                        import uuid as _uuid
                         for att_dict in attachments_data:
-                            validated_attachments.append(
-                                Attachment(
-                                    name=att_dict["name"],
-                                    type=att_dict["type"],
-                                    size=att_dict["size"],
-                                    data=att_dict["data"],
-                                )
+                            att = Attachment(
+                                name=att_dict["name"],
+                                type=att_dict["type"],
+                                size=att_dict["size"],
+                                data=att_dict.get("data", ""),
+                                s3_key=att_dict.get("s3_key"),
                             )
+                            # Assign a stable internal id for routing (avoid name collisions)
+                            att.id = att_dict.get("id") or str(_uuid.uuid4())
+                            validated_attachments.append(att)
 
-                    # Build content blocks (attachments first, then text last)
-                    prompt_text = request.input.get(
-                        "prompt", "No prompt found in input"
+                    prompt_text = request.input.get("prompt", "No prompt found in input")
+
+                    # Only download small S3 objects inline to avoid large memory usage.
+                    # Download inline only when attachment size <= S3_UPLOAD_THRESHOLD
+                    s3_bucket_env = os.environ.get("S3_BUCKET", "")
+                    # Centralize inline image cap configuration (bytes). Default: 2MB
+                    inline_image_max = int(
+                        os.environ.get("INLINE_IMAGE_MAX_BYTES", 2 * 1024 * 1024)
                     )
+                    s3_need_download = [
+                        a
+                        for a in validated_attachments
+                        if a.s3_key
+                        and not a.data
+                        and not is_spreadsheet_type(a.type)
+                        and not is_large_document(a)
+                        and a.size <= S3_UPLOAD_THRESHOLD
+                    ]
+                    if s3_need_download:
+                        if not s3_bucket_env:
+                            yield stream_error_chunk(
+                                "internal_error",
+                                "S3 bucket not configured for inline downloads",
+                                {"allowed_types": list(ALLOWED_TYPES)},
+                            )
+                            yield {"end": True}
+                            return
+                        _s3 = boto3.client("s3", region_name=os.environ.get("REGION", "us-east-1"))
 
-                    # Classify attachments into routing categories
-                    spreadsheet_attachments = [
-                        a for a in validated_attachments if is_spreadsheet_type(a.type)
-                    ]
-                    image_attachments = [
-                        a
-                        for a in validated_attachments
-                        if a.type in ALLOWED_IMAGE_TYPES
-                    ]
+                        def _read_limited(body, max_bytes):
+                            chunks = []
+                            total = 0
+                            while True:
+                                chunk = body.read(65536)
+                                if not chunk:
+                                    break
+                                chunks.append(chunk)
+                                total += len(chunk)
+                                if total > max_bytes:
+                                    raise ValueError("object exceeds inline read limit")
+                            return b"".join(chunks)
+
+                        for att in s3_need_download:
+                            # Skip inlining very large images — prefer CI routing
+                            if att.type in ALLOWED_IMAGE_TYPES and att.size > inline_image_max:
+                                logger.debug(
+                                    f"Skipping inline download for image too large: {att.id or att.s3_key} ({att.size} bytes)"
+                                )
+                                continue
+                            try:
+                                resp = await asyncio.to_thread(
+                                    _s3.get_object, Bucket=s3_bucket_env, Key=att.s3_key
+                                )
+                                cap = inline_image_max if att.type in ALLOWED_IMAGE_TYPES else S3_UPLOAD_THRESHOLD
+                                # Perform the blocking read inside a thread to avoid blocking the event loop
+                                raw_bytes = await asyncio.to_thread(_read_limited, resp["Body"], cap)
+                                att.data = base64.b64encode(raw_bytes).decode("ascii")
+                            except ValueError:
+                                logger.debug(f"Inline download exceeded cap for {att.s3_key}; leaving as s3_key")
+                                continue
+                            except Exception as e:
+                                logger.warning(f"Failed to inline download s3 object {att.s3_key}: {e}")
+                                continue
+
+                    spreadsheet_attachments = [a for a in validated_attachments if is_spreadsheet_type(a.type)]
+                    image_attachments = [a for a in validated_attachments if a.type in ALLOWED_IMAGE_TYPES]
                     document_attachments = [
-                        a
-                        for a in validated_attachments
+                        a for a in validated_attachments
                         if a.type in ALLOWED_DOCUMENT_TYPES
                         and not is_spreadsheet_type(a.type)
                         and a.type not in ALLOWED_IMAGE_TYPES
                     ]
-                    large_doc_attachments = [
-                        d for d in document_attachments if is_large_document(d)
-                    ]
+                    large_doc_attachments = [d for d in document_attachments if is_large_document(d)]
 
-                    # Upload spreadsheets and large documents to CI (fatal on failure)
+                    small_doc_attachments = [d for d in document_attachments if not is_large_document(d)]
+                    if len(small_doc_attachments) >= 2:
+                        large_doc_attachments = document_attachments
+                        # Use stable ids for force-routing to CI (avoid name collisions)
+                        force_ci_ids = {a.id or a.s3_key for a in large_doc_attachments}
+                    else:
+                        force_ci_ids = None
+
+                    s3_only_image_attachments = [
+                        a for a in image_attachments if a.s3_key and not a.data
+                    ]
                     ci_fatal_attachments = (
-                        spreadsheet_attachments + large_doc_attachments
+                        spreadsheet_attachments
+                        + large_doc_attachments
+                        + s3_only_image_attachments
                     )
                     if ci_fatal_attachments:
                         try:
-                            ci_session_id = (
-                                await code_interpreter_client.get_or_create_session(
-                                    session_id, user_id=user_id
-                                )
-                            )
-                            files_to_write = []
-                            for att in ci_fatal_attachments:
-                                files_to_write.append(
-                                    {
-                                        "path": f"/tmp/data/{att.name}",  # nosec B108
-                                        "data": att.data,
-                                    }
-                                )
-                            await code_interpreter_client.upload_data_files(
-                                ci_session_id, files_to_write
-                            )
+                            ci_session_id = await code_interpreter_client.get_or_create_session(session_id, user_id=user_id)
+
+                            s3_ci_files = [a for a in ci_fatal_attachments if a.s3_key and not a.data]
+                            if s3_ci_files:
+                                _s3 = boto3.client("s3", region_name=os.environ.get("REGION", "us-east-1"))
+                                _bucket = os.environ.get("S3_BUCKET", "")
+                                if not _bucket:
+                                    yield stream_error_chunk(
+                                        "internal_error",
+                                        "S3 bucket not configured for Code Interpreter uploads.",
+                                    )
+                                    yield {"end": True}
+                                    return
+                                url_files = []
+                                for att in s3_ci_files:
+                                    get_url = _s3.generate_presigned_url(
+                                        "get_object",
+                                        Params={"Bucket": _bucket, "Key": att.s3_key},
+                                        ExpiresIn=900,
+                                    )
+                                    att.ci_path = build_ci_path(att)
+                                    url_files.append({"path": att.ci_path, "url": get_url})
+                                await code_interpreter_client.upload_files_from_urls(ci_session_id, url_files)
+
+                            inline_ci_files = [a for a in ci_fatal_attachments if a.data]
+                            if inline_ci_files:
+                                files_to_write = []
+                                for att in inline_ci_files:
+                                    att.ci_path = build_ci_path(att)
+                                    files_to_write.append({"path": att.ci_path, "data": att.data})
+                                await code_interpreter_client.upload_data_files(ci_session_id, files_to_write)
                         except CodeInterpreterError as e:
                             logger.error(f"Failed to upload files to CI: {e}")
                             yield stream_error_chunk(
@@ -385,33 +468,22 @@ class StreamingHandler:
                             yield {"end": True}
                             return
 
-                    # Upload images to CI (non-fatal on failure)
                     if image_attachments:
                         try:
-                            ci_session_id = (
-                                await code_interpreter_client.get_or_create_session(
-                                    session_id, user_id=user_id
-                                )
-                            )
+                            ci_session_id = await code_interpreter_client.get_or_create_session(session_id, user_id=user_id)
                             image_files_to_write = []
                             for att in image_attachments:
-                                image_files_to_write.append(
-                                    {
-                                        "path": f"/tmp/data/{att.name}",  # nosec B108
-                                        "data": att.data,
-                                    }
-                                )
-                            await code_interpreter_client.upload_data_files(
-                                ci_session_id, image_files_to_write
-                            )
+                                if not att.data or att.ci_path:
+                                    continue
+                                att.ci_path = build_ci_path(att)
+                                image_files_to_write.append({"path": att.ci_path, "data": att.data})
+                            if image_files_to_write:
+                                await code_interpreter_client.upload_data_files(ci_session_id, image_files_to_write)
                         except CodeInterpreterError as e:
-                            logger.warning(
-                                f"Failed to upload image files to CI, continuing with LLM image blocks: {e}"
-                            )
+                            logger.warning(f"Failed to upload image files to CI: {e}")
 
-                    # Build content blocks with all attachments — routing handled internally
                     content, ci_bound_attachments = build_content_blocks(
-                        prompt_text, validated_attachments
+                        prompt_text, validated_attachments, force_ci_ids=force_ci_ids
                     )
 
                     # Fetch conversation state once for first-message check and message_index
@@ -701,7 +773,11 @@ class StreamingHandler:
 
                         asyncio.create_task(publish_with_description())
         finally:
-            self._processing = False
+            # Ensure we remove the session from the processing set on exit
+            try:
+                self._processing_sessions.discard(session_id)
+            except Exception:
+                pass
 
     def _process_stream_data(
         self,

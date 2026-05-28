@@ -6,14 +6,17 @@ converting them to LLM-compatible content blocks.
 """
 
 import logging
+import os
+import re
 from dataclasses import dataclass
 from typing import List, Optional, Set
 
 logger = logging.getLogger(__name__)
 
 # Constants for file validation
-MAX_FILE_SIZE_BYTES = 4718592  # 4.5MB in bytes
-MAX_SPREADSHEET_SIZE_BYTES = 52428800  # 50MB in bytes
+MAX_FILE_SIZE_BYTES = 115343360      # 110MB
+S3_UPLOAD_THRESHOLD = 4718592        # 4.5MB — routing boundary
+MAX_SPREADSHEET_SIZE_BYTES = 115343360 # 110MB
 
 ALLOWED_IMAGE_TYPES: Set[str] = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
@@ -56,6 +59,9 @@ class Attachment:
     type: str  # MIME type
     size: int
     data: str  # Base64 encoded content
+    s3_key: str = None  # Optional S3 key
+    id: str = None  # Stable identifier for routing decisions
+    ci_path: Optional[str] = None  # Path where the file is available in Code Interpreter
 
 
 @dataclass
@@ -98,7 +104,7 @@ def is_large_document(attachment: Attachment) -> bool:
         return False
     if is_spreadsheet_type(attachment.type):
         return False
-    return attachment.size > MAX_FILE_SIZE_BYTES
+    return attachment.size > S3_UPLOAD_THRESHOLD
 
 
 def get_max_file_size(mime_type: str) -> int:
@@ -131,7 +137,8 @@ def validate_attachment(attachment_dict: dict) -> AttachmentValidationResult:
     Validate a single attachment dictionary.
 
     Validates that:
-    - All required fields are present (name, type, size, data)
+    - All required fields are present (name, type, size)
+    - Either data or s3_key is present
     - Field types are correct
     - File type is allowed
     - File size is within limits
@@ -143,7 +150,7 @@ def validate_attachment(attachment_dict: dict) -> AttachmentValidationResult:
         AttachmentValidationResult with validation status and details
     """
     # Check required fields exist
-    required_fields = ["name", "type", "size", "data"]
+    required_fields = ["name", "type", "size"]
     for field in required_fields:
         if field not in attachment_dict:
             return AttachmentValidationResult(
@@ -156,7 +163,8 @@ def validate_attachment(attachment_dict: dict) -> AttachmentValidationResult:
     name = attachment_dict["name"]
     mime_type = attachment_dict["type"]
     size = attachment_dict["size"]
-    data = attachment_dict["data"]
+    data = attachment_dict.get("data", "")
+    s3_key = attachment_dict.get("s3_key")
 
     # Validate field types
     if not isinstance(name, str):
@@ -191,6 +199,22 @@ def validate_attachment(attachment_dict: dict) -> AttachmentValidationResult:
             reason="malformed_data",
         )
 
+    if s3_key is not None and not isinstance(s3_key, str):
+        return AttachmentValidationResult(
+            valid=False,
+            error="Invalid field type: s3_key must be a string",
+            filename=name,
+            reason="malformed_data",
+        )
+
+    if not data and not s3_key:
+        return AttachmentValidationResult(
+            valid=False,
+            error="Attachment must include data or s3_key",
+            filename=name,
+            reason="malformed_data",
+        )
+
     # Validate file type
     if not validate_file_type(mime_type):
         allowed_types_str = ", ".join(sorted(ALLOWED_TYPES))
@@ -212,7 +236,7 @@ def validate_attachment(attachment_dict: dict) -> AttachmentValidationResult:
         )
 
     # Create valid attachment
-    attachment = Attachment(name=name, type=mime_type, size=size, data=data)
+    attachment = Attachment(name=name, type=mime_type, size=size, data=data, s3_key=s3_key)
 
     return AttachmentValidationResult(valid=True, attachment=attachment, filename=name)
 
@@ -345,10 +369,33 @@ def build_document_content_block(
 
 def build_spreadsheet_content_block(attachment: Attachment) -> dict:
     """Build a text content block that tells the agent where the file is in CI."""
+    ci_path = attachment.ci_path or build_ci_path(attachment, include_stable_prefix=False)
     return {
         "type": "text",
-        "text": f"<document>\nFile: {attachment.name}\nPath: /tmp/data/{attachment.name}\nType: {attachment.type}\nThis file has been uploaded to the Code Interpreter environment. Use execute_code with pandas to read and process it.\n</document>",
+        "text": f"<document>\nFile: {attachment.name}\nPath: {ci_path}\nType: {attachment.type}\nThis file has been uploaded to the Code Interpreter environment. Use execute_code with pandas to read and process it.\n</document>",
     }
+
+
+def safe_attachment_basename(name: str) -> str:
+    """Return a filesystem-safe attachment basename."""
+    safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", os.path.basename(name or "attachment"))
+    return safe_name or "attachment"
+
+
+def build_ci_path(attachment: Attachment, include_stable_prefix: bool = True) -> str:
+    """Build the deterministic Code Interpreter path for an attachment."""
+    safe_name = safe_attachment_basename(attachment.name)
+    if not include_stable_prefix:
+        return f"/tmp/data/{safe_name}"
+
+    stable_id = attachment.id or attachment.s3_key
+    if not stable_id:
+        return f"/tmp/data/{safe_name}"
+
+    safe_id = re.sub(r"[^a-zA-Z0-9._-]", "_", str(stable_id)).strip("_")
+    if not safe_id:
+        return f"/tmp/data/{safe_name}"
+    return f"/tmp/data/{safe_id}_{safe_name}"
 
 
 def build_ci_notification_block(attachment: Attachment) -> dict:
@@ -364,12 +411,13 @@ def build_ci_notification_block(attachment: Attachment) -> dict:
     Returns:
         A dict with type "text" containing the file name, CI path, and MIME type
     """
+    ci_path = attachment.ci_path or build_ci_path(attachment, include_stable_prefix=False)
     return {
         "type": "text",
         "text": (
             f"<document>\n"
             f"File: {attachment.name}\n"
-            f"Path: /tmp/data/{attachment.name}\n"
+            f"Path: {ci_path}\n"
             f"Type: {attachment.type}\n"
             f"This file has been uploaded to the Code Interpreter environment. "
             f"Use execute_code with pandas to read and process it.\n"
@@ -379,7 +427,7 @@ def build_ci_notification_block(attachment: Attachment) -> dict:
 
 
 def build_content_blocks(
-    text: str, attachments: List[Attachment]
+    text: str, attachments: List[Attachment], force_ci_ids=None
 ) -> tuple[List[dict], List[Attachment]]:
     """
     Build a list of LLM-compatible content blocks from text and attachments.
@@ -404,15 +452,26 @@ def build_content_blocks(
     ci_bound_attachments: List[Attachment] = []
 
     for attachment in attachments:
+        # Route images: show inline image block and also notify CI
         if attachment.type in ALLOWED_IMAGE_TYPES:
-            content_blocks.append(build_image_content_block(attachment))
+            if attachment.data:
+                content_blocks.append(build_image_content_block(attachment))
             content_blocks.append(build_ci_notification_block(attachment))
             ci_bound_attachments.append(attachment)
+        # Spreadsheets always go to CI
         elif is_spreadsheet_type(attachment.type):
             content_blocks.append(build_ci_notification_block(attachment))
             ci_bound_attachments.append(attachment)
+        # Documents: either native document block or CI notification
         elif attachment.type in ALLOWED_DOCUMENT_TYPES:
-            if is_large_document(attachment):
+            # force_ci_ids contains stable identifiers (attachment.id or s3_key)
+            should_force_ci = False
+            if force_ci_ids:
+                # attachment.id preferred, fallback to s3_key
+                key = attachment.id or attachment.s3_key
+                should_force_ci = key in force_ci_ids
+
+            if is_large_document(attachment) or should_force_ci:
                 content_blocks.append(build_ci_notification_block(attachment))
                 ci_bound_attachments.append(attachment)
             else:
