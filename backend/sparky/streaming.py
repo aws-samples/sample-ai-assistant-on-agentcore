@@ -4,7 +4,6 @@ import os
 import json
 import asyncio
 import time
-import re
 from asyncio import Queue
 from typing import Any, Dict, List, Optional, TypedDict
 from langchain_core.messages import ToolMessage, AIMessageChunk, AIMessage
@@ -25,6 +24,7 @@ from utils import (
 from attachment_processor import (
     validate_all_attachments,
     build_content_blocks,
+    build_ci_path,
     is_spreadsheet_type,
     is_large_document,
     Attachment,
@@ -418,7 +418,14 @@ class StreamingHandler:
                     else:
                         force_ci_ids = None
 
-                    ci_fatal_attachments = spreadsheet_attachments + large_doc_attachments
+                    s3_only_image_attachments = [
+                        a for a in image_attachments if a.s3_key and not a.data
+                    ]
+                    ci_fatal_attachments = (
+                        spreadsheet_attachments
+                        + large_doc_attachments
+                        + s3_only_image_attachments
+                    )
                     if ci_fatal_attachments:
                         try:
                             ci_session_id = await code_interpreter_client.get_or_create_session(session_id, user_id=user_id)
@@ -427,6 +434,13 @@ class StreamingHandler:
                             if s3_ci_files:
                                 _s3 = boto3.client("s3", region_name=os.environ.get("REGION", "us-east-1"))
                                 _bucket = os.environ.get("S3_BUCKET", "")
+                                if not _bucket:
+                                    yield stream_error_chunk(
+                                        "internal_error",
+                                        "S3 bucket not configured for Code Interpreter uploads.",
+                                    )
+                                    yield {"end": True}
+                                    return
                                 url_files = []
                                 for att in s3_ci_files:
                                     get_url = _s3.generate_presigned_url(
@@ -434,18 +448,16 @@ class StreamingHandler:
                                         Params={"Bucket": _bucket, "Key": att.s3_key},
                                         ExpiresIn=900,
                                     )
-                                    safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", os.path.basename(att.name))
-                                    path = f"/tmp/data/{att.id or att.s3_key}_{safe_name}"
-                                    url_files.append({"path": path, "url": get_url})
+                                    att.ci_path = build_ci_path(att)
+                                    url_files.append({"path": att.ci_path, "url": get_url})
                                 await code_interpreter_client.upload_files_from_urls(ci_session_id, url_files)
 
                             inline_ci_files = [a for a in ci_fatal_attachments if a.data]
                             if inline_ci_files:
                                 files_to_write = []
                                 for att in inline_ci_files:
-                                    safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", os.path.basename(att.name))
-                                    path = f"/tmp/data/{att.id or att.s3_key}_{safe_name}"
-                                    files_to_write.append({"path": path, "data": att.data})
+                                    att.ci_path = build_ci_path(att)
+                                    files_to_write.append({"path": att.ci_path, "data": att.data})
                                 await code_interpreter_client.upload_data_files(ci_session_id, files_to_write)
                         except CodeInterpreterError as e:
                             logger.error(f"Failed to upload files to CI: {e}")
@@ -461,11 +473,10 @@ class StreamingHandler:
                             ci_session_id = await code_interpreter_client.get_or_create_session(session_id, user_id=user_id)
                             image_files_to_write = []
                             for att in image_attachments:
-                                if not att.data:
+                                if not att.data or att.ci_path:
                                     continue
-                                safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", os.path.basename(att.name))
-                                path = f"/tmp/data/{att.id or att.s3_key}_{safe_name}"
-                                image_files_to_write.append({"path": path, "data": att.data})
+                                att.ci_path = build_ci_path(att)
+                                image_files_to_write.append({"path": att.ci_path, "data": att.data})
                             if image_files_to_write:
                                 await code_interpreter_client.upload_data_files(ci_session_id, image_files_to_write)
                         except CodeInterpreterError as e:

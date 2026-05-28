@@ -1,6 +1,7 @@
 /**
  * Attachment constants, validation, and encoding utilities.
  */
+/* global FileReader, XMLHttpRequest */
 
 // ── Constants ──
 
@@ -55,6 +56,11 @@ export function getMaxFileSize(mimeType) {
   return isSpreadsheetType(mimeType) ? MAX_SPREADSHEET_SIZE_BYTES : MAX_FILE_SIZE_BYTES;
 }
 
+export function formatFileSize(bytes) {
+  if (bytes % (1024 * 1024) === 0) return `${bytes / (1024 * 1024)}MB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
 export function validateFileSize(sizeInBytes, mimeType) {
   if (typeof sizeInBytes !== "number" || sizeInBytes < 0) return false;
   return sizeInBytes <= getMaxFileSize(mimeType);
@@ -80,7 +86,8 @@ export function getValidationErrorMessage(file) {
     return `File "${filename}": File type not supported. Allowed: ${exts}`;
   }
   if (result.error === "file_too_large") {
-    return `File "${filename}": File exceeds maximum size of 110MB`;
+    const limit = formatFileSize(getMaxFileSize(file.type));
+    return `File "${filename}": File exceeds maximum size of ${limit}`;
   }
   return `File "${filename}": Validation failed`;
 }
@@ -134,18 +141,18 @@ export async function requestUploadUrls(files, opts) {
   const { endpoint, token, sessionId } = opts;
   const res = await fetch(`${endpoint}/invocations`, {
     method: "POST",
-    
+
     body: JSON.stringify({
       input: {
         type: "get_upload_urls",
-        files: files.map((f) => ({ name: f.name, type: f.type, size: f.size }))
-      }
+        files: files.map((f) => ({ name: f.name, type: f.type, size: f.size })),
+      },
     }),
     // AgentCore requires session id header
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
-      "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": sessionId
+      "X-Amzn-Bedrock-AgentCore-Runtime-Session-Id": sessionId,
     },
   });
   if (!res.ok) {
@@ -166,10 +173,10 @@ export function uploadFileToS3(file, url, onProgress) {
     const contentType = file.type || "application/octet-stream";
     try {
       xhr.setRequestHeader("Content-Type", contentType);
-    } catch (e) {
+    } catch {
       // Some presigned PUT flows don't allow custom headers; ignore if header setting fails
     }
-    
+
     // Add AWS specific headers sometimes required for pre-signed PUTs, but let's stick to standard first
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) {
@@ -192,11 +199,12 @@ export function uploadFileToS3(file, url, onProgress) {
 export async function uploadAttachments(files, opts) {
   const { onProgress } = opts;
   const urlData = await requestUploadUrls(files, opts);
-  
+  const urlByIndex = new Map(urlData.map((entry) => [entry.index, entry]));
+
   const results = [];
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
-    const urlEntry = urlData.find((u) => u.index === i);
+    const urlEntry = urlByIndex.get(i);
     if (!urlEntry) {
       throw new Error(`Missing upload URL for attachment index ${i}`);
     }

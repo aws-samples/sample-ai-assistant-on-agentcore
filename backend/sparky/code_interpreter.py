@@ -161,9 +161,10 @@ class CodeInterpreterClient:
             # urllib with explicit timeouts and chunked writes to avoid
             # memory exhaustion and long blocking operations.
             code_lines = [
-                "import os, urllib.request, socket, threading, time, traceback",
+                "import os, urllib.request, socket, threading, traceback",
                 "socket.setdefaulttimeout(30)",
                 "_errors = []",
+                "_threads = []",
                 "def _download(url, path):",
                 "    try:",
                 "        os.makedirs(os.path.dirname(path), exist_ok=True)",
@@ -184,11 +185,12 @@ class CodeInterpreterClient:
                 code_lines.append(f"t = threading.Thread(target=_download, args=({url}, {path}))")
                 code_lines.append("t.daemon = True")
                 code_lines.append("t.start()")
+                code_lines.append("_threads.append((t, path))")
 
-            # Wait for threads to finish. Simple join loop with small sleeps.
-            code_lines.append("# join remaining non-daemon threads by checking active_count")
-            code_lines.append("while threading.active_count() > 1:")
-            code_lines.append("    time.sleep(0.1)")
+            code_lines.append("for t, path in _threads:")
+            code_lines.append("    t.join(timeout=120)")
+            code_lines.append("    if t.is_alive():")
+            code_lines.append("        _errors.append(('timeout', path, 'Download timed out after 120 seconds'))")
             code_lines.append("if _errors:")
             code_lines.append("    print('DOWNLOAD_ERRORS', repr(_errors))")
             code_lines.append("else:")
