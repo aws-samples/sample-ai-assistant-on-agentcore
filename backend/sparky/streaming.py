@@ -341,6 +341,10 @@ class StreamingHandler:
                     # Only download small S3 objects inline to avoid large memory usage.
                     # Download inline only when attachment size <= S3_UPLOAD_THRESHOLD
                     s3_bucket_env = os.environ.get("S3_BUCKET", "")
+                    # Centralize inline image cap configuration (bytes). Default: 2MB
+                    inline_image_max = int(
+                        os.environ.get("INLINE_IMAGE_MAX_BYTES", 2 * 1024 * 1024)
+                    )
                     s3_need_download = [
                         a
                         for a in validated_attachments
@@ -376,14 +380,17 @@ class StreamingHandler:
 
                         for att in s3_need_download:
                             # Skip inlining very large images — prefer CI routing
-                            if att.type in ALLOWED_IMAGE_TYPES and att.size > int(os.environ.get("INLINE_IMAGE_MAX_BYTES", 2 * 1024 * 1024)):
+                            if att.type in ALLOWED_IMAGE_TYPES and att.size > inline_image_max:
                                 logger.debug(
                                     f"Skipping inline download for image too large: {att.id or att.s3_key} ({att.size} bytes)"
                                 )
                                 continue
                             try:
-                                resp = await asyncio.to_thread(_s3.get_object, Bucket=s3_bucket_env, Key=att.s3_key)
-                                cap = int(os.environ.get("INLINE_IMAGE_MAX_BYTES", 2 * 1024 * 1024)) if att.type in ALLOWED_IMAGE_TYPES else S3_UPLOAD_THRESHOLD
+                                resp = await asyncio.to_thread(
+                                    _s3.get_object, Bucket=s3_bucket_env, Key=att.s3_key
+                                )
+                                cap = inline_image_max if att.type in ALLOWED_IMAGE_TYPES else S3_UPLOAD_THRESHOLD
+                                # Perform the blocking read inside a thread to avoid blocking the event loop
                                 raw_bytes = await asyncio.to_thread(_read_limited, resp["Body"], cap)
                                 att.data = base64.b64encode(raw_bytes).decode("ascii")
                             except ValueError:
