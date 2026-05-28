@@ -3,7 +3,7 @@ import uuid
 import os
 import asyncio
 import json
-import uuid
+import re
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -23,7 +23,6 @@ from utils import (
     extract_budget_level,
     error_envelope,
     sse_stream,
-    CORS_HEADERS,
 )
 from streaming import (
     StreamingHandler,
@@ -184,7 +183,6 @@ class RequestHandlers:
 
             file_id = str(uuid.uuid4())
             # Sanitize provided filename to avoid path traversal or unsafe chars
-            import re
             safe_name = os.path.basename(name)
             safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", safe_name)
             s3_key = f"attachments/{user_id}/{session_id}/{file_id}/{safe_name}"
@@ -197,24 +195,12 @@ class RequestHandlers:
             results.append({"upload_url": upload_url, "s3_key": s3_key, "index": i})
 
         from fastapi.responses import JSONResponse
-        CORS_HEADERS = {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization",
-        }
-        return JSONResponse({"type": "upload_urls", "files": results}, headers=CORS_HEADERS)
+        return JSONResponse({"type": "upload_urls", "files": results})
 
     @staticmethod
     def handle_ping() -> JSONResponse:
         """Handle ping requests"""
-        return JSONResponse(
-            {"type": "pong", "message": "pong"},
-            headers={
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                "Access-Control-Allow-Headers": "*",
-            },
-        )
+        return JSONResponse({"type": "pong", "message": "pong"})
 
     @staticmethod
     async def handle_delete_history(session_id: str, user_id: str) -> JSONResponse:
@@ -291,14 +277,7 @@ class RequestHandlers:
             deregister_session(session_id, user_id)
 
             # Return success regardless of individual failures
-            return JSONResponse(
-                {"success": True, "message": "Session deleted successfully"},
-                headers={
-                    "Access-Control-Allow-Origin": "*",
-                    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                    "Access-Control-Allow-Headers": "*",
-                },
-            )
+            return JSONResponse({"success": True, "message": "Session deleted successfully"})
 
         except Exception as e:
             logger.error(f"Unexpected error in handle_delete_history: {e}")
@@ -386,14 +365,7 @@ class RequestHandlers:
 
             asyncio.create_task(init_ci_session_background())
 
-            return JSONResponse(
-                {"type": "session_created", "session_id": session_id},
-                headers={
-                    "Access-Control-Allow-Origin": "*",
-                    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                    "Access-Control-Allow-Headers": "*",
-                },
-            )
+            return JSONResponse({"type": "session_created", "session_id": session_id})
         except Exception as e:
             logger.error(f"Failed to create session: {e}")
             return error_envelope("session_error", "Failed to create session.")
@@ -528,12 +500,7 @@ class RequestHandlers:
                     "model_id": effective_model_id,
                     "canvases": canvases_state,
                     "project": project_info,
-                },
-                headers={
-                    "Access-Control-Allow-Origin": "*",
-                    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                    "Access-Control-Allow-Headers": "*",
-                },
+                }
             )
         except Exception as e:
             logger.error(f"Failed to prepare: {e}")
@@ -589,12 +556,7 @@ class RequestHandlers:
                     "type": "summary_complete",
                     "session_id": session_id,
                     "description": description,
-                },
-                headers={
-                    "Access-Control-Allow-Origin": "*",
-                    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                    "Access-Control-Allow-Headers": "*",
-                },
+                }
             )
 
         except Exception as e:
@@ -618,14 +580,7 @@ class RequestHandlers:
             - user_message: str - original message (only if active)
         """
         status = StreamingHandler.get_active_stream(session_id)
-        return JSONResponse(
-            status,
-            headers={
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                "Access-Control-Allow-Headers": "*",
-            },
-        )
+        return JSONResponse(status)
 
     @staticmethod
     async def handle_stream_resume(session_id: str) -> StreamingResponse:
@@ -696,13 +651,7 @@ class RequestHandlers:
         return StreamingResponse(
             generate(),
             media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-                "Access-Control-Allow-Headers": "*",
-            },
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
         )
 
     @staticmethod
@@ -715,11 +664,7 @@ class RequestHandlers:
         and canvases are already correct). Falls back to turn_index-based slicing
         for backward compatibility with older clients.
         """
-        cors_headers = {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "*",
-        }
+        # CORS is handled globally via FastAPI CORSMiddleware; avoid per-response headers
 
         try:
             source_session_id = request.input.get("source_session_id")
@@ -874,7 +819,7 @@ class RequestHandlers:
             }
             if skipped_thread_ids:
                 response_body["skipped_thread_ids"] = skipped_thread_ids
-            return JSONResponse(response_body, headers=cors_headers)
+            return JSONResponse(response_body)
 
         except Exception as e:
             logger.error(f"Unexpected error in handle_branch: {e}")
@@ -1011,40 +956,24 @@ class RequestHandlers:
         request: dict, user_id: str, session_id: str
     ) -> JSONResponse:
         """Save a user edit by overwriting the latest version in-place via aupdate_state."""
-        cors_headers = {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "*",
-        }
+        # CORS handled by FastAPI CORSMiddleware
         canvas_id = request.get("canvas_id")
         content = request.get("content")
 
         if not canvas_id or content is None:
-            return JSONResponse(
-                {"type": "error", "error": "canvas_id and content are required"},
-                status_code=400,
-                headers=cors_headers,
-            )
+            return JSONResponse({"type": "error", "error": "canvas_id and content are required"}, status_code=400)
 
         try:
             config = {"configurable": {"thread_id": session_id, "actor_id": user_id}}
             state = await agent_manager.cached_agent.aget_state(config)
 
             if not state or not state.values.get("canvases"):
-                return JSONResponse(
-                    {"type": "error", "error": "Canvas not found"},
-                    status_code=404,
-                    headers=cors_headers,
-                )
+                return JSONResponse({"type": "error", "error": "Canvas not found"}, status_code=404)
 
             canvases = state.values["canvases"]
             canvas = canvases.get(canvas_id)
             if canvas is None:
-                return JSONResponse(
-                    {"type": "error", "error": "Canvas not found"},
-                    status_code=404,
-                    headers=cors_headers,
-                )
+                return JSONResponse({"type": "error", "error": "Canvas not found"}, status_code=404)
 
             version_id = canvas["latest_version_id"]
             existing_version = canvas["versions"][version_id]
@@ -1069,17 +998,10 @@ class RequestHandlers:
                 },
             )
 
-            return JSONResponse(
-                {"status": "updated", "canvas_id": canvas_id},
-                headers=cors_headers,
-            )
+            return JSONResponse({"status": "updated", "canvas_id": canvas_id})
         except Exception as e:
             logger.error(f"Failed to save canvas edit: {e}")
-            return JSONResponse(
-                {"type": "error", "error": "Failed to save canvas edit."},
-                status_code=500,
-                headers=cors_headers,
-            )
+            return JSONResponse({"type": "error", "error": "Failed to save canvas edit."}, status_code=500)
 
     @staticmethod
     async def handle_save_canvas_to_project(
@@ -1091,20 +1013,12 @@ class RequestHandlers:
         and persists it to S3 + DynamoDB via project_canvas_service.
         Re-saving an existing canvas_id overwrites the previous version.
         """
-        cors_headers = {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "*",
-        }
+        # CORS handled by FastAPI CORSMiddleware
         project_id = request.get("project_id")
         canvas_id = request.get("canvas_id")
 
         if not project_id or not canvas_id:
-            return JSONResponse(
-                {"type": "error", "error": "project_id and canvas_id are required"},
-                status_code=400,
-                headers=cors_headers,
-            )
+            return JSONResponse({"type": "error", "error": "project_id and canvas_id are required"}, status_code=400)
 
         try:
             from project_context import get_project_for_user
@@ -1117,29 +1031,17 @@ class RequestHandlers:
                 )
 
             if not agent_manager.cached_agent:
-                return JSONResponse(
-                    {"type": "error", "error": "Agent not initialized"},
-                    status_code=503,
-                    headers=cors_headers,
-                )
+                return JSONResponse({"type": "error", "error": "Agent not initialized"}, status_code=503)
 
             config = {"configurable": {"thread_id": session_id, "actor_id": user_id}}
             state = await agent_manager.cached_agent.aget_state(config)
 
             if not state or not state.values.get("canvases"):
-                return JSONResponse(
-                    {"type": "error", "error": "Canvas not found in session state"},
-                    status_code=404,
-                    headers=cors_headers,
-                )
+                return JSONResponse({"type": "error", "error": "Canvas not found in session state"}, status_code=404)
 
             canvas = state.values["canvases"].get(canvas_id)
             if canvas is None:
-                return JSONResponse(
-                    {"type": "error", "error": f"Canvas {canvas_id!r} not found"},
-                    status_code=404,
-                    headers=cors_headers,
-                )
+                return JSONResponse({"type": "error", "error": f"Canvas {canvas_id!r} not found"}, status_code=404)
 
             latest_version = canvas["versions"][canvas["latest_version_id"]]
             result = await save_canvas(
@@ -1152,10 +1054,7 @@ class RequestHandlers:
                 user_id=user_id,
             )
 
-            return JSONResponse(
-                {"status": "saved", **result},
-                headers=cors_headers,
-            )
+            return JSONResponse({"status": "saved", **result})
         except Exception as e:
             logger.error(f"Failed to save canvas to project: {e}")
             return error_envelope("internal_error", "Failed to save canvas to project.")
@@ -1165,20 +1064,12 @@ class RequestHandlers:
         request: dict, user_id: str, session_id: str
     ) -> JSONResponse:
         """Delete a saved canvas artifact from a project."""
-        cors_headers = {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "*",
-        }
+        # CORS handled by FastAPI CORSMiddleware
         project_id = request.get("project_id")
         canvas_id = request.get("canvas_id")
 
         if not project_id or not canvas_id:
-            return JSONResponse(
-                {"type": "error", "error": "project_id and canvas_id are required"},
-                status_code=400,
-                headers=cors_headers,
-            )
+            return JSONResponse({"type": "error", "error": "project_id and canvas_id are required"}, status_code=400)
 
         try:
             from project_context import get_project_for_user
@@ -1186,22 +1077,13 @@ class RequestHandlers:
 
             project = await get_project_for_user(project_id, user_id)
             if not project:
-                return error_envelope(
-                    "auth_error", "Project not found or access denied"
-                )
+                return error_envelope("auth_error", "Project not found or access denied")
 
             deleted = await delete_canvas(project_id, canvas_id)
             if not deleted:
-                return JSONResponse(
-                    {"type": "error", "error": f"Canvas {canvas_id!r} not found"},
-                    status_code=404,
-                    headers=cors_headers,
-                )
+                return JSONResponse({"type": "error", "error": f"Canvas {canvas_id!r} not found"}, status_code=404)
 
-            return JSONResponse(
-                {"status": "deleted", "canvas_id": canvas_id},
-                headers=cors_headers,
-            )
+            return JSONResponse({"status": "deleted", "canvas_id": canvas_id})
         except Exception as e:
             logger.error(f"Failed to delete project canvas: {e}")
             return error_envelope("internal_error", "Failed to delete project canvas.")
@@ -1372,8 +1254,7 @@ class RequestHandlers:
                     "thread_id": thread_id,
                     "thread_graph_id": thread_graph_id,
                     "anchor": anchor,
-                },
-                headers=CORS_HEADERS,
+                }
             )
         except ValueError as e:
             return error_envelope("validation_error", str(e))
@@ -1474,8 +1355,7 @@ class RequestHandlers:
                     "thread_id": thread_id,
                     "messages": serialized,
                     "anchor": anchor,
-                },
-                headers=CORS_HEADERS,
+                }
             )
         except Exception as e:
             logger.error(f"handle_thread_fetch failed: {e}")
@@ -1518,10 +1398,7 @@ class RequestHandlers:
                 _adelete_checkpoints(),
             )
 
-            return JSONResponse(
-                {"type": "thread_deleted", "thread_id": thread_id},
-                headers=CORS_HEADERS,
-            )
+            return JSONResponse({"type": "thread_deleted", "thread_id": thread_id})
         except Exception as e:
             logger.error(f"handle_thread_delete failed: {e}")
             return error_envelope("internal_error", "Failed to delete thread.")

@@ -162,7 +162,13 @@ export function uploadFileToS3(file, url, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", url, true);
-    xhr.setRequestHeader("Content-Type", file.type);
+    // Some platforms may provide an empty `file.type`. Use a safe fallback
+    const contentType = file.type || "application/octet-stream";
+    try {
+      xhr.setRequestHeader("Content-Type", contentType);
+    } catch (e) {
+      // Some presigned PUT flows don't allow custom headers; ignore if header setting fails
+    }
     
     // Add AWS specific headers sometimes required for pre-signed PUTs, but let's stick to standard first
     xhr.upload.onprogress = (e) => {
@@ -190,7 +196,11 @@ export async function uploadAttachments(files, opts) {
   const results = [];
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
-    const { upload_url, s3_key } = urlData.find((u) => u.index === i);
+    const urlEntry = urlData.find((u) => u.index === i);
+    if (!urlEntry) {
+      throw new Error(`Missing upload URL for attachment index ${i}`);
+    }
+    const { upload_url, s3_key } = urlEntry;
     await uploadFileToS3(file, upload_url, (pct) => {
       if (onProgress) onProgress(i, pct);
     });

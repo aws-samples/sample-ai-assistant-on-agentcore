@@ -81,6 +81,7 @@ const ChatInput = ({
   // Single state for which dropdown is open (replaces activeDropdown + visibleDropdown + dropdownStates + isClosing)
   const [openDropdownId, setOpenDropdownId] = useState(null);
   const [attachedFiles, setAttachedFiles] = useState([]);
+  const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
@@ -330,7 +331,9 @@ const ChatInput = ({
     };
 
     if (attachedFiles.length > 0) {
+      if (isUploading) return; // Prevent duplicate sends while uploads are in progress
       try {
+        setIsUploading(true);
         // SPLIT: small files inline, large files via S3
         const smallFiles = attachedFiles.filter((f) => !shouldUseS3Upload(f.file));
         const largeFiles = attachedFiles.filter((f) => shouldUseS3Upload(f.file));
@@ -389,7 +392,11 @@ const ChatInput = ({
         setAttachedFiles((prev) =>
           prev.map((f) => ({ ...f, status: "error", error: error.message }))
         );
+        setIsUploading(false);
         return;
+      }
+      finally {
+        setIsUploading(false);
       }
     }
 

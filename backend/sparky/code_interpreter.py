@@ -157,16 +157,42 @@ class CodeInterpreterClient:
         """For large files — CI downloads directly from S3 presigned GET URL."""
         try:
             import json
+            # Download files concurrently inside the CI sandbox using
+            # urllib with explicit timeouts and chunked writes to avoid
+            # memory exhaustion and long blocking operations.
+            code_lines = [
+                "import os, urllib.request, socket, threading, time, traceback",
+                "socket.setdefaulttimeout(30)",
+                "_errors = []",
+                "def _download(url, path):",
+                "    try:",
+                "        os.makedirs(os.path.dirname(path), exist_ok=True)",
+                "        with urllib.request.urlopen(url, timeout=30) as r:",
+                "            with open(path, 'wb') as f:",
+                "                while True:",
+                "                    chunk = r.read(65536)",
+                "                    if not chunk: break",
+                "                    f.write(chunk)",
+                "    except Exception as e:",
+                "        _errors.append((url, path, traceback.format_exc()))",
+            ]
 
-            code_lines = ["import os, urllib.request"]
+            # Spawn threads for each download
             for f in files:
-                code_lines.append(
-                    f"os.makedirs(os.path.dirname({json.dumps(f['path'])}), exist_ok=True)"
-                )
-                code_lines.append(
-                    f"urllib.request.urlretrieve({json.dumps(f['url'])}, {json.dumps(f['path'])})"
-                )
-            code_lines.append(f"print('DOWNLOADED_{len(files)}_FILES')")
+                url = json.dumps(f["url"]) if isinstance(f.get("url"), str) else '""'
+                path = json.dumps(f["path"])
+                code_lines.append(f"t = threading.Thread(target=_download, args=({url}, {path}))")
+                code_lines.append("t.daemon = True")
+                code_lines.append("t.start()")
+
+            # Wait for threads to finish. Simple join loop with small sleeps.
+            code_lines.append("# join remaining non-daemon threads by checking active_count")
+            code_lines.append("while threading.active_count() > 1:")
+            code_lines.append("    time.sleep(0.1)")
+            code_lines.append("if _errors:")
+            code_lines.append("    print('DOWNLOAD_ERRORS', repr(_errors))")
+            code_lines.append("else:")
+            code_lines.append(f"    print('DOWNLOADED_{len(files)}_FILES')")
 
             script = "\n".join(code_lines)
 

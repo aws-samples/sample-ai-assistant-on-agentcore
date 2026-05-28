@@ -4,6 +4,7 @@ import os
 import json
 import asyncio
 import time
+import re
 from asyncio import Queue
 from typing import Any, Dict, List, Optional, TypedDict
 from langchain_core.messages import ToolMessage, AIMessageChunk, AIMessage
@@ -117,10 +118,15 @@ def cleanup_finished_tasks():
 
 class StreamingHandler:
     def __init__(self):
-        # Guard: only one message processed at a time to prevent AI state corruption
-        self._processing = False
+        # Guard: track sessions currently being processed to prevent AI state corruption
+        self._processing_sessions: set = set()
         # Canvas streaming state machine (extracted to dedicated module)
         self._canvas_parser = CanvasStreamParser()
+
+# Max inline image size (bytes). Images larger than this will not be read into
+# process memory inline; they will remain as s3_key references and be routed
+# to the Code Interpreter instead. Default: 2MB (configurable via env).
+INLINE_IMAGE_MAX_BYTES = int(os.environ.get("INLINE_IMAGE_MAX_BYTES", 2 * 1024 * 1024))
 
     @staticmethod
     def get_active_stream(session_id: str) -> dict:
@@ -145,11 +151,11 @@ class StreamingHandler:
         # Clean up any finished tasks
         cleanup_finished_tasks()
 
-        # Only one message at a time to prevent AI message state corruption
-        if self._processing:
+        # Per-session processing guard to avoid blocking other sessions
+        if session_id in self._processing_sessions:
             yield stream_error_chunk(
                 "rate_limit",
-                "Agent is currently processing another request. Please wait for it to complete.",
+                "Agent is currently processing another request for this session. Please wait for it to complete.",
             )
             yield {"end": True}
             return
@@ -159,7 +165,8 @@ class StreamingHandler:
         global _current_tasks
         _current_tasks[session_id] = current_task
 
-        self._processing = True
+        # Mark this session as processing
+        self._processing_sessions.add(session_id)
         try:
             response_buffer = []
             cancelled = False
@@ -358,11 +365,36 @@ class StreamingHandler:
                             yield {"end": True}
                             return
                         _s3 = boto3.client("s3", region_name=os.environ.get("REGION", "us-east-1"))
+
+                        def _read_limited(body, max_bytes):
+                            chunks = []
+                            total = 0
+                            while True:
+                                chunk = body.read(65536)
+                                if not chunk:
+                                    break
+                                chunks.append(chunk)
+                                total += len(chunk)
+                                if total > max_bytes:
+                                    raise ValueError("object exceeds inline read limit")
+                            return b"".join(chunks)
+
                         for att in s3_need_download:
-                            # perform network + IO heavy reads in threadpool
-                            resp = await asyncio.to_thread(_s3.get_object, Bucket=s3_bucket_env, Key=att.s3_key)
-                            raw_bytes = await asyncio.to_thread(lambda: resp["Body"].read())
-                            att.data = base64.b64encode(raw_bytes).decode("ascii")
+                            # Skip inlining very large images — prefer CI routing
+                            if att.type in ALLOWED_IMAGE_TYPES and att.size > int(os.environ.get("INLINE_IMAGE_MAX_BYTES", 2 * 1024 * 1024)):
+                                logger.debug(f"Skipping inline download for image too large: {att.name} ({att.size} bytes)")
+                                continue
+                            try:
+                                resp = await asyncio.to_thread(_s3.get_object, Bucket=s3_bucket_env, Key=att.s3_key)
+                                cap = int(os.environ.get("INLINE_IMAGE_MAX_BYTES", 2 * 1024 * 1024)) if att.type in ALLOWED_IMAGE_TYPES else S3_UPLOAD_THRESHOLD
+                                raw_bytes = await asyncio.to_thread(_read_limited, resp["Body"], cap)
+                                att.data = base64.b64encode(raw_bytes).decode("ascii")
+                            except ValueError:
+                                logger.debug(f"Inline download exceeded cap for {att.s3_key}; leaving as s3_key")
+                                continue
+                            except Exception as e:
+                                logger.warning(f"Failed to inline download s3 object {att.s3_key}: {e}")
+                                continue
 
                     spreadsheet_attachments = [a for a in validated_attachments if is_spreadsheet_type(a.type)]
                     image_attachments = [a for a in validated_attachments if a.type in ALLOWED_IMAGE_TYPES]
@@ -398,12 +430,18 @@ class StreamingHandler:
                                         Params={"Bucket": _bucket, "Key": att.s3_key},
                                         ExpiresIn=900,
                                     )
-                                    url_files.append({"path": f"/tmp/data/{att.name}", "url": get_url})
+                                    safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", os.path.basename(att.name))
+                                    path = f"/tmp/data/{att.id or att.s3_key}_{safe_name}"
+                                    url_files.append({"path": path, "url": get_url})
                                 await code_interpreter_client.upload_files_from_urls(ci_session_id, url_files)
 
                             inline_ci_files = [a for a in ci_fatal_attachments if a.data]
                             if inline_ci_files:
-                                files_to_write = [{"path": f"/tmp/data/{att.name}", "data": att.data} for att in inline_ci_files]
+                                files_to_write = []
+                                for att in inline_ci_files:
+                                    safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", os.path.basename(att.name))
+                                    path = f"/tmp/data/{att.id or att.s3_key}_{safe_name}"
+                                    files_to_write.append({"path": path, "data": att.data})
                                 await code_interpreter_client.upload_data_files(ci_session_id, files_to_write)
                         except CodeInterpreterError as e:
                             logger.error(f"Failed to upload files to CI: {e}")
@@ -713,7 +751,11 @@ class StreamingHandler:
 
                         asyncio.create_task(publish_with_description())
         finally:
-            self._processing = False
+            # Ensure we remove the session from the processing set on exit
+            try:
+                self._processing_sessions.discard(session_id)
+            except Exception:
+                pass
 
     def _process_stream_data(
         self,
