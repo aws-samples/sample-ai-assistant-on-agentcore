@@ -55,9 +55,9 @@ variable "sparky_models" {
     default_model_id = "claude-sonnet-4.6"
     models = [
       {
-        id             = "claude-opus-4.7"
-        model_id       = "global.anthropic.claude-opus-4-7"
-        label          = "Claude Opus 4.7"
+        id             = "claude-opus-4.8"
+        model_id       = "global.anthropic.claude-opus-4-8"
+        label          = "Claude Opus 4.8"
         description    = "Best model"
         max_tokens     = 128000
         reasoning_type = "effort"
@@ -77,15 +77,15 @@ variable "sparky_models" {
         beta_flags     = ["context-1m-2025-08-07", "fine-grained-tool-streaming-2025-05-14"]
       },
       {
-        id             = "claude-opus-4.6"
-        model_id       = "global.anthropic.claude-opus-4-6-v1"
-        label          = "Claude Opus 4.6"
-        description    = "Best previous model"
+        id             = "claude-opus-4.7"
+        model_id       = "global.anthropic.claude-opus-4-7"
+        label          = "Claude Opus 4.7"
+        description    = "Best model"
         max_tokens     = 128000
         reasoning_type = "effort"
         budget_mapping = {}
-        effort_mapping = { "1" = "low", "2" = "medium", "3" = "high", "4" = "max" }
-        beta_flags     = ["context-1m-2025-08-07", "fine-grained-tool-streaming-2025-05-14"]
+        effort_mapping = { "1" = "low", "2" = "medium", "3" = "high", "4" = "xhigh", "5" = "max" }
+        beta_flags     = ["fine-grained-tool-streaming-2025-05-14"]
       },
       {
         id             = "claude-haiku-4.5"

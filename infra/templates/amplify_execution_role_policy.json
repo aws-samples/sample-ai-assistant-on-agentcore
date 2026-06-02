@@ -2,19 +2,32 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "AmplifyAppAccess",
       "Effect": "Allow",
       "Action": [
-        "amplify:*",
-        "cloudfront:CreateInvalidation",
-        "s3:GetObject",
-        "s3:PutObject",
-        "s3:DeleteObject",
-        "s3:ListBucket",
-        "logs:CreateLogStream",
-        "logs:PutLogEvents",
-        "logs:CreateLogGroup"
+        "amplify:GetApp",
+        "amplify:GetBranch",
+        "amplify:GetJob",
+        "amplify:ListApps",
+        "amplify:ListBranches",
+        "amplify:ListJobs",
+        "amplify:CreateDeployment",
+        "amplify:StartDeployment",
+        "amplify:StartJob"
       ],
-      "Resource": "*"
+      "Resource": "arn:aws:amplify:${region}:${account_id}:apps/*"
+    },
+    {
+      "Sid": "AmplifyBuildLogs",
+      "Effect": "Allow",
+      "Action": ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"],
+      "Resource": "arn:aws:logs:${region}:${account_id}:log-group:/aws/amplify/*"
+    },
+    {
+      "Sid": "AmplifyCloudFrontInvalidation",
+      "Effect": "Allow",
+      "Action": ["cloudfront:CreateInvalidation"],
+      "Resource": "arn:aws:cloudfront::${account_id}:distribution/*"
     }
   ]
 }

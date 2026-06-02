@@ -11,7 +11,7 @@ It handles two event types:
 import json
 import logging
 import os
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import boto3
 
@@ -221,15 +221,18 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         context: Lambda context object
 
     Returns:
-        Response dict with statusCode
-
-    Raises:
-        Exception: Re-raises exceptions to trigger SQS retry
+        Dict with batchItemFailures — only the records that failed are reported,
+        so SQS retries just those messages instead of the whole batch. The event
+        source mapping has function_response_types=["ReportBatchItemFailures"].
 
     """
-    logger.debug(f"Processing {len(event.get('Records', []))} SQS records")
+    records = event.get("Records", [])
+    logger.debug(f"Processing {len(records)} SQS records")
 
-    for record in event.get("Records", []):
+    batch_item_failures: List[Dict[str, str]] = []
+
+    for record in records:
+        message_id = record.get("messageId", "unknown")
         try:
             message = json.loads(record["body"])
             event_type = message.get("event_type")
@@ -247,11 +250,17 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     message_count=message.get("message_count"),
                 )
             else:
-                logger.warning(f"Unknown event_type: {event_type}")
+                # Unknown/malformed event types are not retryable — log and drop
+                # so a single poison message can't be retried forever or fail the
+                # batch. (No itemIdentifier appended → treated as succeeded.)
+                logger.warning(
+                    f"Unknown event_type: {event_type}, message_id={message_id}"
+                )
 
         except Exception as e:
-            logger.error(f"Error processing record: {e}", exc_info=True)
-            # Re-raise to trigger SQS retry
-            raise
+            # Report only this record as failed so good messages in the same
+            # batch are not re-driven / DLQ'd alongside it.
+            logger.error(f"Error processing record {message_id}: {e}", exc_info=True)
+            batch_item_failures.append({"itemIdentifier": message_id})
 
-    return {"statusCode": 200}
+    return {"batchItemFailures": batch_item_failures}

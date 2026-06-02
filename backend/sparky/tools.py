@@ -43,6 +43,33 @@ def _get_user_id_from_config(config: RunnableConfig) -> str:
     return "unknown"
 
 
+# Sentinel delimiters that mark tool output as UNTRUSTED retrieved data (web
+# pages, KB documents, project memory, MCP server output). The system prompt
+# instructs the model that anything inside these markers is data to analyze,
+# never instructions to follow — mitigating indirect prompt injection where a
+# fetched/retrieved document tries to hijack the agent's privileged tools.
+UNTRUSTED_OPEN = "<untrusted_content>"
+UNTRUSTED_CLOSE = "</untrusted_content>"
+
+
+def wrap_untrusted(content: str, source: str = "") -> str:
+    """Wrap retrieved/external content in untrusted-content delimiters.
+
+    Any literal occurrence of the delimiter inside the content is neutralized so
+    the boundary cannot be forged by the retrieved data itself.
+
+    Args:
+        content: The externally-sourced text to mark as untrusted.
+        source: Optional short label (e.g. "web", "knowledge_base") for context.
+
+    Returns:
+        The content fenced by untrusted-content markers.
+    """
+    safe = (content or "").replace(UNTRUSTED_OPEN, "").replace(UNTRUSTED_CLOSE, "")
+    label = f" source={source}" if source else ""
+    return f"{UNTRUSTED_OPEN}{label}\n{safe}\n{UNTRUSTED_CLOSE}"
+
+
 def create_tavily_search_tool(api_key: str):
     """
     Create a Tavily search tool configured with the user's API key.
@@ -94,7 +121,13 @@ def create_tavily_search_tool(api_key: str):
             kwargs["include_domains"] = include_domains
         if exclude_domains:
             kwargs["exclude_domains"] = exclude_domains
-        return await base_tool.ainvoke(kwargs)
+        result = await base_tool.ainvoke(kwargs)
+        # Web search results are attacker-controllable content; fence them so the
+        # model treats them as data, not instructions (indirect prompt injection).
+        return wrap_untrusted(
+            result if isinstance(result, str) else json.dumps(result, default=str),
+            source="web_search",
+        )
 
     return tavily_search
 

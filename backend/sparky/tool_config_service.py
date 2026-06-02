@@ -835,34 +835,66 @@ class ToolConfigService:
 def _validate_mcp_url(url: str) -> None:
     """Validate an MCP server URL to prevent SSRF attacks.
 
-    Rejects non-HTTPS schemes, loopback, link-local, and private network addresses.
+    Enforces HTTPS only, rejects embedded credentials, and rejects hostnames
+    that resolve to loopback, private, link-local, reserved, multicast, or
+    unspecified addresses (covering cloud metadata endpoints such as
+    169.254.169.254 and fd00:ec2::254).
+
+    DNS-rebinding note: this is called immediately before each connection
+    attempt at every call site, so the resolve-then-validate window is kept as
+    small as possible. Full IP pinning is not done here because the underlying
+    MCP transport (MultiServerMCPClient/httpx) re-resolves DNS and pinning would
+    break TLS SNI / certificate validation; re-validating at connect time is the
+    practical mitigation.
     """
     parsed = urlparse(url)
-    if parsed.scheme not in ("https", "http"):
+    if parsed.scheme != "https":
         raise ValueError(
-            f"Unsupported URL scheme: {parsed.scheme}. Only http/https allowed."
+            f"Unsupported URL scheme: {parsed.scheme or '(none)'}. Only https is allowed."
         )
+
+    # Reject embedded credentials (user:pass@host) which can mask the real host
+    if parsed.username or parsed.password:
+        raise ValueError("MCP server URL must not contain embedded credentials.")
 
     hostname = parsed.hostname
     if not hostname:
         raise ValueError("URL is missing a hostname.")
 
-    # Reject obvious internal hostnames
+    # Reject obvious internal hostnames (defense in depth on top of IP checks)
     _blocked_hostnames = {"localhost", "metadata.google.internal"}
-    if hostname.lower() in _blocked_hostnames:
+    _blocked_suffixes = (".localhost", ".internal", ".local")
+    host_lower = hostname.lower().rstrip(".")
+    if host_lower in _blocked_hostnames or host_lower.endswith(_blocked_suffixes):
         raise ValueError(f"MCP server URL targets a blocked hostname: {hostname}")
 
-    # Resolve hostname and reject internal/private IP ranges
+    # Resolve hostname and reject internal/private IP ranges. Every returned
+    # address must be public — a single blocked address rejects the URL.
     try:
         resolved = socket.getaddrinfo(
             hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM
         )
-        for _family, _type, _proto, _canonname, sockaddr in resolved:
-            ip = ipaddress.ip_address(sockaddr[0])
-            if ip.is_loopback or ip.is_private or ip.is_link_local or ip.is_reserved:
-                raise ValueError(f"MCP server URL resolves to a blocked address: {ip}")
     except socket.gaierror as e:
         raise ValueError(f"Cannot resolve MCP server hostname '{hostname}': {e}")
+
+    if not resolved:
+        raise ValueError(f"MCP server hostname '{hostname}' did not resolve.")
+
+    for _family, _type, _proto, _canonname, sockaddr in resolved:
+        ip = ipaddress.ip_address(sockaddr[0])
+        # IPv4-mapped IPv6 (e.g. ::ffff:169.254.169.254) must be unwrapped
+        mapped = getattr(ip, "ipv4_mapped", None)
+        if mapped is not None:
+            ip = mapped
+        if (
+            ip.is_loopback
+            or ip.is_private
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        ):
+            raise ValueError(f"MCP server URL resolves to a blocked address: {ip}")
 
 
 # Global service instance

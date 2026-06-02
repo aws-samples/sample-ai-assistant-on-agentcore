@@ -17,6 +17,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import boto3
+from botocore.exceptions import ClientError
 
 logger = logging.getLogger()
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
@@ -152,11 +153,28 @@ def handler(event, context):
 
     for record in event.get("Records", []):
         message_id = record["messageId"]
-        execution_id = str(uuid.uuid4())
+        # Idempotency: derive a deterministic execution_id from a redelivery-stable
+        # identifier so an SQS retry of the SAME message maps to the SAME execution
+        # record instead of spawning a duplicate run. Prefer the SQS message dedup
+        # id (FIFO), then a Scheduler-provided id in the body, then the messageId.
+        body_for_key = {}
+        try:
+            body_for_key = json.loads(record.get("body") or "{}")
+        except (ValueError, TypeError):
+            body_for_key = {}
+        idempotency_source = (
+            record.get("attributes", {}).get("MessageDeduplicationId")
+            or body_for_key.get("execution_id")
+            or body_for_key.get("scheduled_time")
+            or message_id
+        )
+        execution_id = str(
+            uuid.uuid5(uuid.NAMESPACE_URL, f"sparky-task-exec:{idempotency_source}")
+        )
         job_id = None
 
         try:
-            body = json.loads(record["body"])
+            body = body_for_key or json.loads(record["body"])
             job_id = body.get("job_id")
             user_id = body.get("user_id")
             if not job_id or not user_id:
@@ -177,16 +195,34 @@ def handler(event, context):
                 logger.info("Job %s status=%s, skipping", job_id, job.get("status"))
                 continue
 
-            executions_table.put_item(  # 30-day TTL
-                Item={
-                    "job_id": job_id,
-                    "execution_id": execution_id,
-                    "user_id": user_id,
-                    "status": _STATUS_RUNNING,
-                    "started_at": _now_iso(),
-                    "expires_at": int(time.time()) + 30 * 86400,
-                }
-            )
+            # Conditional write: if this execution record already exists, a prior
+            # delivery already dispatched (or is dispatching) this task — skip to
+            # avoid a duplicate run. attribute_not_exists on the execution_id range
+            # key is the per-message dedup guard.
+            try:
+                executions_table.put_item(  # 30-day TTL
+                    Item={
+                        "job_id": job_id,
+                        "execution_id": execution_id,
+                        "user_id": user_id,
+                        "status": _STATUS_RUNNING,
+                        "started_at": _now_iso(),
+                        "expires_at": int(time.time()) + 30 * 86400,
+                    },
+                    ConditionExpression="attribute_not_exists(execution_id)",
+                )
+            except ClientError as ce:
+                if (
+                    ce.response.get("Error", {}).get("Code")
+                    == "ConditionalCheckFailedException"
+                ):
+                    logger.info(
+                        "Duplicate delivery for job %s (execution %s already exists) — skipping",
+                        job_id,
+                        execution_id,
+                    )
+                    continue
+                raise
 
             _invoke_runtime_async(
                 prompt=job.get("prompt", ""),

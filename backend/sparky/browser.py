@@ -6,9 +6,12 @@ header signing, and Playwright for CDP-based browser interactions.
 """
 
 import base64
+import ipaddress
 import logging
 import os
+import socket
 import uuid
+from urllib.parse import urlparse
 
 from bedrock_agentcore.tools.browser_client import (
     BrowserClient as AgentCoreBrowserClient,
@@ -20,6 +23,57 @@ from config import REGION
 logger = logging.getLogger(__name__)
 
 BROWSER_TOOL_ID = os.environ.get("BROWSER_TOOL_ID", "aws.browser.v1")
+
+
+def _validate_navigate_url(url: str) -> None:
+    """Validate a navigation URL to prevent SSRF / internal-network access.
+
+    Restricts the scheme to http/https (blocking file://, chrome://, data:,
+    etc.) and rejects hostnames that resolve to loopback, private, link-local,
+    reserved, multicast, or unspecified addresses — including cloud metadata
+    endpoints (169.254.169.254). Raises BrowserToolError if the URL is unsafe.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise BrowserToolError(
+            f"Unsupported URL scheme '{parsed.scheme or '(none)'}'. "
+            "Only http and https URLs may be browsed."
+        )
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise BrowserToolError("Navigation URL is missing a hostname.")
+
+    _blocked_hostnames = {"localhost", "metadata.google.internal"}
+    _blocked_suffixes = (".localhost", ".internal", ".local")
+    host_lower = hostname.lower().rstrip(".")
+    if host_lower in _blocked_hostnames or host_lower.endswith(_blocked_suffixes):
+        raise BrowserToolError(f"Navigation to blocked hostname: {hostname}")
+
+    try:
+        resolved = socket.getaddrinfo(
+            hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM
+        )
+    except socket.gaierror as e:
+        raise BrowserToolError(f"Cannot resolve hostname '{hostname}': {e}")
+
+    for _family, _type, _proto, _canonname, sockaddr in resolved:
+        ip = ipaddress.ip_address(sockaddr[0])
+        mapped = getattr(ip, "ipv4_mapped", None)
+        if mapped is not None:
+            ip = mapped
+        if (
+            ip.is_loopback
+            or ip.is_private
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        ):
+            raise BrowserToolError(
+                f"Navigation URL resolves to a blocked address: {ip}"
+            )
+
 
 # Keep these aligned with your frontend viewer box for consistent “fit” behavior.
 VIEWPORT_WIDTH = int(os.environ.get("BROWSER_VIEWPORT_WIDTH", "800"))
@@ -206,13 +260,30 @@ class BrowserClient:
     async def _action_navigate(self, page, url: str = "", **_) -> dict:
         if not url:
             return {"status": "error", "content": "url is required for navigate"}
+        # SSRF guard: block internal/metadata targets and non-web schemes.
+        try:
+            _validate_navigate_url(url)
+        except BrowserToolError as e:
+            logger.warning(f"Blocked navigation to '{url}': {e}")
+            return {"status": "error", "content": str(e)}
         logger.info(f"Navigating to {url}")
         await page.goto(url, wait_until="domcontentloaded", timeout=30000)
         title = await page.title()
         text = await page.evaluate(
             "() => document.body ? document.body.innerText.substring(0, 8000) : ''"
         )
-        return {"status": "success", "content": f"Title: {title}\n\n{text}", "url": url}
+        # Page content is attacker-controllable (any site the agent visits), so
+        # fence it as untrusted data. The delimiter cannot be forged: strip any
+        # literal occurrence from the fetched text first.
+        body_text = f"Title: {title}\n\n{text}".replace(
+            "<untrusted_content>", ""
+        ).replace("</untrusted_content>", "")
+        fenced = (
+            f"<untrusted_content source=web url={url}>\n"
+            f"{body_text}\n"
+            f"</untrusted_content>"
+        )
+        return {"status": "success", "content": fenced, "url": url}
 
     async def _action_click(
         self, page, x: int = 0, y: int = 0, selector: str = "", **_

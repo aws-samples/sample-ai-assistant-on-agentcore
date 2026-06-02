@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 
 from botocore.exceptions import ClientError
 from scheduled_task_service import scheduled_task_service as _task_svc
-from utils import logger, CORS_HEADERS, error_envelope
+from utils import logger, CORS_HEADERS, error_envelope, validate_mcp_url
 from config import bedrock_client, MODEL_ID, history_graph, checkpointer
 from history_manager import get_history
 from chat_history_service import chat_history_service
@@ -714,6 +714,13 @@ class RequestHandlers:
                     "Server URL is required for streamable_http transport",
                 )
 
+            # SSRF guard: validate the user-supplied URL before we ever connect.
+            if transport == "streamable_http":
+                try:
+                    validate_mcp_url(server.get("url", ""))
+                except ValueError as url_err:
+                    return error_envelope("validation_error", str(url_err))
+
             if transport == "stdio" and not server.get("command"):
                 return error_envelope(
                     "validation_error", "Command is required for stdio transport"
@@ -890,6 +897,12 @@ class RequestHandlers:
             from langchain_mcp_adapters.client import MultiServerMCPClient
 
             if transport == "streamable_http":
+                # SSRF guard: re-validate the URL before reconnecting (closes the
+                # DNS-rebinding window and catches any tampered stored config).
+                try:
+                    validate_mcp_url(server.get("url", ""))
+                except ValueError as url_err:
+                    return error_envelope("validation_error", str(url_err))
                 client_config = {
                     server_name: {
                         "transport": "streamable_http",

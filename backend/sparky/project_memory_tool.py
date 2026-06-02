@@ -116,4 +116,8 @@ async def recall_project_memory(
             }
         )
 
-    return json.dumps({"memories": results})
+    # Memories are extracted from prior conversation content (potentially
+    # influenced by earlier untrusted input), so fence them as untrusted data.
+    from tools import wrap_untrusted
+
+    return wrap_untrusted(json.dumps({"memories": results}), source="project_memory")

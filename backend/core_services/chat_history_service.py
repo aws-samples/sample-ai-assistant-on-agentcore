@@ -153,7 +153,8 @@ class ChatHistoryService:
                 "Limit": limit,
             }
 
-            if bookmarked_filter is False:
+            has_filter = bookmarked_filter is False
+            if has_filter:
                 query_params["FilterExpression"] = (
                     "attribute_not_exists(bookmarked) OR bookmarked = :bval"
                 )
@@ -164,10 +165,46 @@ class ChatHistoryService:
             if last_evaluated_key:
                 query_params["ExclusiveStartKey"] = last_evaluated_key
 
-            response = self.table.query(**query_params)
+            if not has_filter:
+                # Fast path: no FilterExpression, so DynamoDB's Limit returns up
+                # to `limit` matching items in a single query.
+                response = self.table.query(**query_params)
+                sessions = response.get("Items", [])
+                next_key = response.get("LastEvaluatedKey")
+            else:
+                # Filtered path: DynamoDB applies Limit BEFORE the FilterExpression,
+                # so a single query can return far fewer than `limit` matches (or
+                # zero) while more pages still exist. Loop on LastEvaluatedKey,
+                # accumulating filtered items until we have `limit` or the index is
+                # exhausted. Stop one item past `limit` so we can report has_more
+                # accurately and hand back a usable cursor.
+                sessions = []
+                next_key = None
+                while True:
+                    response = self.table.query(**query_params)
+                    sessions.extend(response.get("Items", []))
+                    page_key = response.get("LastEvaluatedKey")
 
-            sessions = response.get("Items", [])
-            next_key = response.get("LastEvaluatedKey")
+                    if len(sessions) >= limit:
+                        # Trim to the requested page size; the cursor for the next
+                        # page is the key of the last item we keep.
+                        if len(sessions) > limit:
+                            sessions = sessions[:limit]
+                            next_key = {
+                                "session_id": sessions[-1]["session_id"],
+                                "user_id": user_id,
+                                "created_at": sessions[-1]["created_at"],
+                            }
+                        else:
+                            next_key = page_key
+                        break
+
+                    if not page_key:
+                        # Index exhausted — no more pages.
+                        next_key = None
+                        break
+
+                    query_params["ExclusiveStartKey"] = page_key
 
             return {
                 "sessions": sessions,

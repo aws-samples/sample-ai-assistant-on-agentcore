@@ -72,8 +72,8 @@ def compute_ttl(current_time: int, expiry_days: int) -> int:
 
 def parse_sqs_record(
     record: Dict[str, Any],
-) -> Tuple[Optional[str], Optional[str], str]:
-    """Parse an SQS record to extract session_id and user_id.
+) -> Tuple[Optional[str], Optional[str], Optional[int], str]:
+    """Parse an SQS record to extract session_id, user_id, and message_count.
 
     The SQS message body contains a JSON-encoded DynamoDB Stream REMOVE event
     forwarded by the EventBridge Pipe.
@@ -82,8 +82,10 @@ def parse_sqs_record(
         record: A single SQS event record
 
     Returns:
-        Tuple of (session_id, user_id, message_id). session_id is None if
-        the record is invalid/unparseable.
+        Tuple of (session_id, user_id, message_count, message_id). session_id is
+        None if the record is invalid/unparseable. message_count is the indexed
+        document high-water-mark stored on the session item (None if the session
+        predates that attribute — callers fall back to a safe default).
     """
     message_id = record.get("messageId", "unknown")
 
@@ -95,7 +97,7 @@ def parse_sqs_record(
             message_id,
             str(e),
         )
-        return None, None, message_id
+        return None, None, None, message_id
 
     old_image = parsed.get("dynamodb", {}).get("OldImage", {})
 
@@ -105,14 +107,24 @@ def parse_sqs_record(
             "SQS message %s missing session_id in OldImage, skipping",
             message_id,
         )
-        return None, None, message_id
+        return None, None, None, message_id
 
     session_id = session_id_attr["S"]
 
     user_id_attr = old_image.get("user_id")
     user_id = user_id_attr.get("S") if user_id_attr else None
 
-    return session_id, user_id, message_id
+    # message_count is a DynamoDB Number attribute ({"N": "<int>"}). Absent on
+    # legacy sessions written before the high-water-mark was tracked.
+    message_count = None
+    mc_attr = old_image.get("message_count")
+    if mc_attr and mc_attr.get("N") is not None:
+        try:
+            message_count = int(mc_attr["N"])
+        except (ValueError, TypeError):
+            message_count = None
+
+    return session_id, user_id, message_count, message_id
 
 
 def delete_memory_session(session_id: str, user_id: str) -> None:
@@ -167,19 +179,40 @@ def delete_memory_session(session_id: str, user_id: str) -> None:
         )
 
 
-def delete_session_documents(session_id: str) -> None:
+def delete_session_documents(
+    session_id: str, message_count: Optional[int] = None
+) -> None:
     """Delete all KB documents for a session.
 
-    Constructs document IDs using the format {session_id}_msg_{index}
-    for up to DEFAULT_MAX_MESSAGES. Generates IDs per batch (max 25)
-    to avoid allocating the full list in memory.
+    Constructs document IDs using the format {session_id}_msg_{index} and deletes
+    them in batches of 25. The number of documents is the session's recorded
+    high-water-mark (message_count) plus a small safety margin to cover any
+    in-flight/off-by-one indexing. When the count is unknown (legacy sessions
+    written before the high-water-mark was tracked), falls back to
+    DEFAULT_MAX_MESSAGES so behavior is never worse than before.
 
     Args:
         session_id: The session whose KB documents should be deleted
+        message_count: Indexed-document high-water-mark from the session item,
+                       or None to use the legacy default cap.
     """
+    if message_count is not None and message_count >= 0:
+        # +5 safety margin: deleting non-existent document IDs is a no-op, so it
+        # is cheap insurance against an in-flight ingest the count hasn't caught.
+        total = max(message_count + 5, DEFAULT_MAX_MESSAGES)
+    else:
+        total = DEFAULT_MAX_MESSAGES
+
+    logger.info(
+        "Deleting up to %d KB documents for session=%s (recorded count=%s)",
+        total,
+        session_id,
+        message_count,
+    )
+
     batch_size = 25
-    for start in range(0, DEFAULT_MAX_MESSAGES, batch_size):
-        end = min(start + batch_size, DEFAULT_MAX_MESSAGES)
+    for start in range(0, total, batch_size):
+        end = min(start + batch_size, total)
         batch = [
             {
                 "dataSourceType": "CUSTOM",
@@ -215,7 +248,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     batch_item_failures: List[Dict[str, str]] = []
 
     for record in records:
-        session_id, user_id, message_id = parse_sqs_record(record)
+        session_id, user_id, message_count, message_id = parse_sqs_record(record)
 
         if not session_id:
             # Invalid/unparseable record — skip without adding to failures
@@ -233,7 +266,7 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Step 2: Delete KB documents (failure → add to batch failures)
         try:
             logger.info("Deleting KB documents for session_id=%s", session_id)
-            delete_session_documents(session_id)
+            delete_session_documents(session_id, message_count)
             logger.info(
                 "Successfully deleted KB documents for session_id=%s", session_id
             )

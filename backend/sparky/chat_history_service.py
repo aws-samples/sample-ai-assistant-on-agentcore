@@ -107,6 +107,39 @@ class ChatHistoryService:
                 logger.error(f"Error creating session record: {e}")
                 raise
 
+    async def update_message_count(self, session_id: str, message_count: int) -> None:
+        """Persist the high-water-mark of indexed message documents on the session.
+
+        Stored so the KB-cleanup pipeline (DynamoDB Stream → expiry_cleanup Lambda)
+        can read the true document count from the session item's OldImage and
+        delete every KB document for the session, instead of guessing a fixed cap
+        (which orphaned documents for sessions with >100 message pairs).
+
+        Uses a monotonic max so out-of-order updates never lower the count.
+        Best-effort: failures are logged, not raised, so they never block the turn.
+
+        Args:
+            session_id: The session whose count to bump
+            message_count: Total number of indexed message documents so far
+        """
+        try:
+            await asyncio.to_thread(
+                lambda: self.table.update_item(
+                    Key={"session_id": session_id},
+                    UpdateExpression="SET message_count = :mc",
+                    ConditionExpression="attribute_exists(session_id) AND (attribute_not_exists(message_count) OR message_count < :mc)",
+                    ExpressionAttributeValues={":mc": message_count},
+                )
+            )
+        except ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            if code == "ConditionalCheckFailedException":
+                # Either the session is gone or our count isn't higher — fine.
+                return
+            logger.warning(
+                f"Failed to update message_count for session {session_id}: {e}"
+            )
+
     async def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
         """
         Get a single session record by session_id.

@@ -696,6 +696,13 @@ class StreamingHandler:
                                     ai_response=ai_response_text,
                                     description=session_description,
                                 )
+                                # Persist the document high-water-mark on the
+                                # session so KB cleanup (DynamoDB Stream →
+                                # expiry_cleanup) deletes every doc, not a fixed
+                                # cap. Docs are 0-indexed, so count = index + 1.
+                                await chat_history_service.update_message_count(
+                                    session_id, message_index + 1
+                                )
                             except Exception as e:
                                 logger.error(f"KB publish failed: {e}")
 

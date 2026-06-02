@@ -50,7 +50,10 @@ resource "aws_iam_role" "amplify_iam_role" {
 }
 
 resource "aws_iam_role_policy" "amplify_iam_policy" {
-  name   = "${local.prefix}-amplify-policy"
-  role   = aws_iam_role.amplify_iam_role.id
-  policy = templatefile("${path.module}/templates/amplify_execution_role_policy.json", {})
+  name = "${local.prefix}-amplify-policy"
+  role = aws_iam_role.amplify_iam_role.id
+  policy = templatefile("${path.module}/templates/amplify_execution_role_policy.json", {
+    region     = local.aws_region
+    account_id = data.aws_caller_identity.caller_identity.account_id
+  })
 }

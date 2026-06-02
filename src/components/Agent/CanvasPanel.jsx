@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState, useMemo, useCallback } from "react";
+import DOMPurify from "dompurify";
 import { X, Loader2, Copy, Check, Download, Bookmark, BookmarkCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import TipTapEditor from "@/components/ui/tiptap-editor";
@@ -380,7 +381,16 @@ window.addEventListener('message',function(evt){
         });
         const renderId = "mermaid-" + Date.now();
         const { svg } = await mermaid.render(renderId, displayContent.trim());
-        if (!cancelled) setMermaidSvg(svg);
+        // Mermaid skips its own DOMPurify pass in securityLevel "loose", so the
+        // rendered SVG can carry javascript: hrefs / event handlers from agent-
+        // generated diagram content. Sanitize before it reaches the same-origin
+        // DOM via dangerouslySetInnerHTML. The SVG profile preserves the diagram
+        // (svg/foreignObject/anchors/text) while stripping script vectors.
+        const clean = DOMPurify.sanitize(svg, {
+          USE_PROFILES: { svg: true, svgFilters: true, html: true },
+          ADD_TAGS: ["foreignObject"],
+        });
+        if (!cancelled) setMermaidSvg(clean);
       } catch {
         document.querySelectorAll('[id^="dmermaid-"]').forEach((el) => el.remove());
         if (!cancelled) setMermaidSvg("");

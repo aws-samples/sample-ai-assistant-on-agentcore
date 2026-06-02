@@ -131,7 +131,13 @@ async def search_project_knowledge_base(
                 }
             )
 
-        return json.dumps({"results": formatted})
+        # KB documents are user-uploaded / externally-sourced content, so fence
+        # the results as untrusted data the model must analyze, not obey.
+        from tools import wrap_untrusted
+
+        return wrap_untrusted(
+            json.dumps({"results": formatted}), source="knowledge_base"
+        )
 
     except Exception as e:
         logger.error(f"Error searching project knowledge base: {e}")

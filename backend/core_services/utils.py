@@ -2,13 +2,75 @@ import json
 import logging
 import traceback
 import base64
+import ipaddress
+import socket
 from decimal import Decimal
 from typing import Any, Dict
+from urllib.parse import urlparse
 from fastapi.responses import JSONResponse
 
 # Configure logger
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
+
+
+def validate_mcp_url(url: str) -> None:
+    """Validate a user-supplied MCP server URL to prevent SSRF attacks.
+
+    Enforces HTTPS only, rejects embedded credentials, and rejects hostnames
+    that resolve to loopback, private, link-local, reserved, multicast, or
+    unspecified addresses (covering cloud metadata endpoints such as
+    169.254.169.254 and fd00:ec2::254).
+
+    Must be called immediately before each connection attempt so the
+    resolve-then-validate window stays small. Raises ValueError if the URL is
+    not safe to connect to. Kept self-contained (no cross-package import) so the
+    core_services runtime does not depend on the sparky package.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        raise ValueError(
+            f"Unsupported URL scheme: {parsed.scheme or '(none)'}. Only https is allowed."
+        )
+
+    if parsed.username or parsed.password:
+        raise ValueError("MCP server URL must not contain embedded credentials.")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("URL is missing a hostname.")
+
+    _blocked_hostnames = {"localhost", "metadata.google.internal"}
+    _blocked_suffixes = (".localhost", ".internal", ".local")
+    host_lower = hostname.lower().rstrip(".")
+    if host_lower in _blocked_hostnames or host_lower.endswith(_blocked_suffixes):
+        raise ValueError(f"MCP server URL targets a blocked hostname: {hostname}")
+
+    try:
+        resolved = socket.getaddrinfo(
+            hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM
+        )
+    except socket.gaierror as e:
+        raise ValueError(f"Cannot resolve MCP server hostname '{hostname}': {e}")
+
+    if not resolved:
+        raise ValueError(f"MCP server hostname '{hostname}' did not resolve.")
+
+    for _family, _type, _proto, _canonname, sockaddr in resolved:
+        ip = ipaddress.ip_address(sockaddr[0])
+        mapped = getattr(ip, "ipv4_mapped", None)
+        if mapped is not None:
+            ip = mapped
+        if (
+            ip.is_loopback
+            or ip.is_private
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        ):
+            raise ValueError(f"MCP server URL resolves to a blocked address: {ip}")
+
 
 # CORS Headers for API responses
 CORS_HEADERS = {

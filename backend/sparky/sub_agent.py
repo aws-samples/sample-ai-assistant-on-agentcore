@@ -108,9 +108,7 @@ def create_sub_agent_tool(
     tavily_search = parent_tools_by_name.get("tavily_search")
     tavily_extract = parent_tools_by_name.get("tavily_extract")
     if tavily_search is None and tavily_extract is None:
-        logger.debug(
-            "Sub-agent tool not built — parent has no Tavily tools configured"
-        )
+        logger.debug("Sub-agent tool not built — parent has no Tavily tools configured")
         return None
 
     default_sub_tools: list[BaseTool] = [
@@ -210,9 +208,7 @@ def create_sub_agent_tool(
         )
 
         try:
-            result = await graph.ainvoke(
-                {"messages": [HumanMessage(content=request)]}
-            )
+            result = await graph.ainvoke({"messages": [HumanMessage(content=request)]})
         except Exception as e:
             logger.error("Sub-agent: invocation failed: %s", e)
             return f"Sub-agent error: {e}"
