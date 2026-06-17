@@ -3,7 +3,7 @@
 
 # LangChain ecosystem - required for streaming agent
 langgraph>=1.1.2
-langchain==1.2.12
+langchain==1.3.9
 langchain-aws==1.4.1
 langgraph-checkpoint-aws==1.0.6
 
