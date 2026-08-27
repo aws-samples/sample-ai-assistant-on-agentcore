@@ -175,6 +175,9 @@ async def invoke(request: InvocationRequest, http_request: Request):
         )
 
     # Handle immediate response types with normal returns
+    if request_type == "get_upload_urls":
+        return await handlers.handle_get_upload_urls(request.input, user_id, session_id)
+
     if request_type == "ping":
         return handlers.handle_ping()
 

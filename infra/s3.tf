@@ -30,8 +30,8 @@ resource "aws_s3_bucket_cors_configuration" "artifact_bucket_cors" {
       "X-Amz-User-Agent",
       "X-Amz-Copy-Source",
       "X-Amz-Copy-Source-Range",
-      "Content-md5",
-      "Content-type",
+      "Content-MD5",
+      "Content-Type",
       "Content-Length",
       "Content-Encoding"
     ]
@@ -90,8 +90,8 @@ resource "aws_s3_bucket_cors_configuration" "skills_bucket_cors" {
       "X-Amz-User-Agent",
       "X-Amz-Copy-Source",
       "X-Amz-Copy-Source-Range",
-      "Content-md5",
-      "Content-type",
+      "Content-MD5",
+      "Content-Type",
       "Content-Length",
       "Content-Encoding"
     ]
